@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { trackerTheme } from '@/constants/trackerTheme';
 import { useTrackerContext } from '@/app/context/TrackerContext';
+import { trackerTheme } from '@/constants/trackerTheme';
+import React, { useState } from 'react';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TasksScreen() {
@@ -57,8 +57,11 @@ export default function TasksScreen() {
       <ScrollView contentContainerStyle={styles.section}>
         <Text style={styles.sectionTitle}>Active Categories</Text>
         {tasks.map(task => {
-          const su = statusUpdates[task.id];
-          const progress = su ? Math.round((su.actual / su.scheduled) * 100) : 0;
+          const taskUpdates = Object.entries(statusUpdates).filter(([k]) => k === String(task.id) || k.startsWith(`${task.id}_`));
+          let actual = 0, sched = 0;
+          taskUpdates.forEach(([_, u]) => { actual += u.actual; sched += u.scheduled; });
+          const progress = sched > 0 ? Math.round((actual / sched) * 100) : 0;
+          
           return (
             <TouchableOpacity key={task.id} style={styles.taskCard} onPress={() => setTaskModalVisible(task.id)}>
               <View style={styles.taskCardHeader}>
@@ -67,7 +70,11 @@ export default function TasksScreen() {
                   <Text style={styles.taskName}>{task.name}</Text>
                 </View>
                 <View style={[styles.taskBadge, { backgroundColor: task.color + '26' }]}>
-                  <Text style={{ color: task.color, fontSize: 10, fontWeight: '600' }}>{task.subtasks.length} subtasks</Text>
+                  {/* <Text style={{ color: task.color, fontSize: 10, fontWeight: '600' }}>{task.subtasks.length} subtasks</Text> */}
+                           <TouchableOpacity onPress={() => removeTask(task.id)}>
+                               <Text style={{ color: trackerTheme.colors.accent3, fontSize: 18 }}>×</Text>
+                          </TouchableOpacity>
+                  
                 </View>
               </View>
               <View>

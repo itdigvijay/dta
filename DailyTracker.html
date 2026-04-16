@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DailyTracker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0F0F14;--surf:#1A1A24;--surf2:#222230;--surf3:#2A2A3C;
+  --acc:#7C6DED;--a2:#5BC4A0;--a3:#F06B6B;--a4:#F0A83E;
+  --tx:#F0EFF8;--tx2:#9B9AB5;--tx3:#5A5972;
+  --bord:rgba(255,255,255,0.07);--r:14px;--r2:8px;
+}
+body{background:#1a1a2e;font-family:'Segoe UI',system-ui,sans-serif;color:var(--tx);display:flex;align-items:flex-start;justify-content:center;min-height:100vh;padding:24px 0}
+.phone{width:390px;min-height:820px;background:var(--bg);border-radius:40px;border:2px solid rgba(255,255,255,0.1);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.sbar{padding:12px 24px 4px;display:flex;justify-content:space-between;font-size:12px;color:var(--tx2)}
+.screen{flex:1;overflow-y:auto;padding-bottom:80px}
+.screen::-webkit-scrollbar{display:none}
+.nav{position:absolute;bottom:0;left:0;right:0;height:72px;background:rgba(26,26,36,0.97);border-top:1px solid var(--bord);display:flex;align-items:center;justify-content:space-around;padding:8px 0 12px}
+.ni{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:4px 10px;border-radius:var(--r2)}
+.ni-dot{width:18px;height:3px;border-radius:2px;background:transparent}
+.ni.act .ni-dot{background:var(--acc)}
+.ni-ico{font-size:19px}
+.ni-lbl{font-size:10px;color:var(--tx3);font-weight:500}
+.ni.act .ni-lbl{color:var(--acc)}
+.ph{padding:14px 20px 8px;display:flex;justify-content:space-between;align-items:flex-start}
+.pt{font-size:22px;font-weight:700;letter-spacing:-.5px}
+.ps{font-size:13px;color:var(--tx2);margin-top:2px}
+.chip{background:var(--acc);color:#fff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:20px;cursor:pointer;border:none}
+.chip.ghost{background:var(--surf2);color:var(--tx2)}
+.sec{padding:0 20px 14px}
+.st{font-size:11px;font-weight:600;color:var(--tx3);letter-spacing:.8px;text-transform:uppercase;margin-bottom:10px}
+.card{background:var(--surf);border-radius:var(--r);padding:14px 16px;margin-bottom:10px;border:1px solid var(--bord)}
+.card.tap{cursor:pointer}
+.card.tap:hover{border-color:rgba(124,109,237,.35)}
+.badge{font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px}
+.row{display:flex;align-items:center;gap:8px}
+.bar-track{height:4px;background:var(--surf3);border-radius:2px;margin-top:8px;width:100%}
+.bar-fill{height:4px;border-radius:2px}
+.add-dash{width:100%;padding:12px;border-radius:var(--r);border:1.5px dashed var(--surf3);background:transparent;color:var(--tx3);font-size:14px;cursor:pointer;margin-bottom:10px;transition:all .2s}
+.add-dash:hover{border-color:var(--acc);color:var(--acc)}
+.date-row{display:flex;gap:7px;padding:4px 20px 14px;overflow-x:auto}
+.date-row::-webkit-scrollbar{display:none}
+.dcell{min-width:46px;height:62px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;border:1px solid var(--bord);background:var(--surf);position:relative;transition:all .2s}
+.dcell.today{background:var(--acc);border-color:var(--acc)}
+.dcell.sel{border-color:var(--acc);background:rgba(124,109,237,.15)}
+.dcell.rest{background:rgba(240,107,107,.08);border-color:rgba(240,107,107,.3)}
+.dcell.rest .dnum{color:var(--a3)}
+.dcell.has-tpl::after{content:'';width:5px;height:5px;border-radius:50%;background:var(--a2);position:absolute;bottom:5px}
+.dwd{font-size:9px;color:var(--tx3);font-weight:500}
+.dcell.today .dwd{color:rgba(255,255,255,.7)}
+.dnum{font-size:15px;font-weight:700}
+.dcell.today .dnum{color:#fff}
+.sched-item{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--bord)}
+.sched-item:last-child{border-bottom:none}
+.time-col{min-width:62px}
+.t-range{font-size:11px;font-weight:600;color:var(--tx2)}
+.t-dur{font-size:10px;color:var(--tx3);margin-top:2px}
+.sched-card{flex:1;background:var(--surf2);border-radius:10px;padding:10px 12px;border-left:3px solid}
+.scard-top{display:flex;justify-content:space-between;align-items:flex-start}
+.scard-name{font-size:14px;font-weight:600}
+.scard-sub{font-size:12px;color:var(--tx2);margin-top:2px}
+.spill{font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;border:1px solid;cursor:pointer}
+.rest-banner{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;gap:8px}
+.rest-ico{font-size:40px}
+.rest-title{font-size:16px;font-weight:700;color:var(--a3)}
+.rest-sub{font-size:13px;color:var(--tx2);text-align:center}
+.rest-btn{margin-top:10px;background:rgba(240,107,107,.12);color:var(--a3);border:1px solid rgba(240,107,107,.35);padding:8px 18px;border-radius:20px;cursor:pointer;font-size:13px;font-weight:600}
+.tpl-card{background:var(--surf);border-radius:var(--r);padding:13px 15px;margin-bottom:9px;border:1px solid var(--bord);cursor:pointer;transition:all .2s}
+.tpl-card:hover{border-color:rgba(124,109,237,.35)}
+.tpl-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.tpl-name{font-size:14px;font-weight:600}
+.tpl-count{font-size:11px;color:var(--tx3)}
+.tpl-blocks{display:flex;gap:5px;flex-wrap:wrap}
+.tpl-blk{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:500}
+.tpl-actions{display:flex;gap:6px}
+.icon-btn{background:transparent;border:1px solid var(--bord);color:var(--tx2);padding:5px 10px;border-radius:var(--r2);cursor:pointer;font-size:12px}
+.icon-btn:hover{border-color:var(--acc);color:var(--acc)}
+.icon-btn.danger:hover{border-color:var(--a3);color:var(--a3)}
+.modal-wrap{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.72);z-index:50;display:flex;flex-direction:column;justify-content:flex-end}
+.modal{background:var(--surf);border-radius:22px 22px 0 0;padding:20px;max-height:88%;overflow-y:auto}
+.modal::-webkit-scrollbar{display:none}
+.modal-title{font-size:17px;font-weight:700;margin-bottom:16px}
+.inp-grp{margin-bottom:12px}
+.inp-lbl{font-size:12px;color:var(--tx2);margin-bottom:5px;display:block;font-weight:500}
+.inp{width:100%;background:var(--surf2);border:1px solid var(--bord);border-radius:var(--r2);padding:9px 12px;color:var(--tx);font-size:14px;outline:none}
+.inp:focus{border-color:var(--acc)}
+.color-opts{display:flex;gap:8px;margin-top:5px;flex-wrap:wrap}
+.copt{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent}
+.copt.sel{border-color:#fff}
+.m-actions{display:flex;gap:10px;margin-top:14px}
+.btn-p{flex:2;padding:12px;background:var(--acc);color:#fff;border:none;border-radius:var(--r2);font-size:14px;font-weight:700;cursor:pointer}
+.btn-s{flex:1;padding:12px;background:var(--surf2);color:var(--tx2);border:none;border-radius:var(--r2);font-size:14px;cursor:pointer}
+.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 20px 14px}
+.mc{background:var(--surf);border-radius:var(--r);padding:13px;border:1px solid var(--bord)}
+.mc-lbl{font-size:11px;color:var(--tx2);font-weight:500;margin-bottom:5px}
+.mc-val{font-size:22px;font-weight:700}
+.mc-sub{font-size:11px;color:var(--tx3);margin-top:2px}
+.mc-tr{font-size:11px;font-weight:600;margin-top:3px}
+.period-tabs{display:flex;gap:6px;padding:0 20px 14px}
+.ptab{flex:1;padding:8px;text-align:center;font-size:12px;font-weight:600;border-radius:var(--r2);cursor:pointer;border:1px solid var(--bord);color:var(--tx2);transition:all .2s}
+.ptab.act{background:var(--acc);color:#fff;border-color:var(--acc)}
+.bar-chart-wrap{padding:0 20px 14px}
+.bchart{display:flex;gap:5px;align-items:flex-end;height:90px}
+.bcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px}
+.bbar{width:100%;border-radius:4px 4px 0 0;min-height:4px}
+.bday{font-size:9px;color:var(--tx3)}
+.bval{font-size:9px;color:var(--tx2)}
+.su-card{background:var(--surf);border-radius:var(--r);padding:13px 15px;border:1px solid var(--bord);margin-bottom:10px;border-left:3px solid}
+.hours-display{display:flex;gap:0;margin:10px 0}
+.hbox{flex:1;text-align:center}
+.hnum{font-size:18px;font-weight:700}
+.hunit{font-size:10px;color:var(--tx3);margin-top:1px}
+.hdiv{width:1px;background:var(--bord);margin:4px 0}
+.slider-wrap{margin:8px 0}
+.slider-lbl{font-size:11px;color:var(--tx3);margin-bottom:4px}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.status-btns{display:flex;gap:6px}
+.sbtn{flex:1;padding:7px 4px;text-align:center;font-size:10px;font-weight:600;border-radius:var(--r2);border:1px solid var(--bord);cursor:pointer;color:var(--tx3)}
+.sbtn.done{background:rgba(91,196,160,.12);color:var(--a2);border-color:var(--a2)}
+.sbtn.part{background:rgba(240,168,62,.12);color:var(--a4);border-color:var(--a4)}
+.sbtn.pend{background:rgba(90,89,114,.15);color:var(--tx3);border-color:var(--tx3)}
+.assign-tpl-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.assign-chip{padding:6px 12px;border-radius:20px;border:1px solid var(--bord);background:var(--surf2);color:var(--tx2);font-size:12px;font-weight:500;cursor:pointer}
+.assign-chip.sel{background:rgba(124,109,237,.18);border-color:var(--acc);color:var(--acc)}
+.assign-chip.rest-chip.sel{background:rgba(240,107,107,.12);border-color:var(--a3);color:var(--a3)}
+</style>
+</head>
+<body>
+
+<div class="phone" id="app">
+  <div class="sbar"><span>9:41</span><span>●●● 100%</span></div>
+
+  <div class="screen" id="s-dash">
+    <div style="padding:10px 20px 4px">
+      <div style="font-size:13px;color:var(--tx2)">Good morning,</div>
+      <div style="font-size:26px;font-weight:800;letter-spacing:-.5px">DailyTracker</div>
+      <div style="display:inline-flex;align-items:center;gap:5px;background:rgba(240,168,62,.12);color:var(--a4);font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;margin-top:5px">🔥 7 day streak</div>
+    </div>
+    <div class="period-tabs" style="margin-top:10px">
+      <div class="ptab act" onclick="setPeriod(this,'d')">Daily</div>
+      <div class="ptab" onclick="setPeriod(this,'w')">Weekly</div>
+      <div class="ptab" onclick="setPeriod(this,'m')">Monthly</div>
+    </div>
+    <div class="metric-grid">
+      <div class="mc"><div class="mc-lbl">Completion</div><div class="mc-val" style="color:var(--a2)" id="d-comp">78%</div><div class="mc-sub" id="d-comp-sub">5 of 7 tasks</div><div class="mc-tr" style="color:var(--a2)">↑ 12% vs yesterday</div></div>
+      <div class="mc"><div class="mc-lbl">Active Hours</div><div class="mc-val" style="color:var(--acc)">11.5h</div><div class="mc-sub">of 16h scheduled</div><div class="mc-tr" style="color:var(--a3)">↓ 2h deficit</div></div>
+      <div class="mc"><div class="mc-lbl">Sleep Score</div><div class="mc-val" style="color:var(--a2)">8h</div><div class="mc-sub">Target: 8h</div><div class="mc-tr" style="color:var(--a2)">✓ Goal met</div></div>
+      <div class="mc"><div class="mc-lbl">Study Time</div><div class="mc-val" style="color:var(--a4)">2h</div><div class="mc-sub">of 3h scheduled</div><div class="mc-tr" style="color:var(--a3)">↓ 1h remaining</div></div>
+    </div>
+    <div class="bar-chart-wrap">
+      <div class="st">Weekly completion</div>
+      <div class="bchart" id="bchart"></div>
+      <div style="display:flex;gap:5px;margin-top:5px" id="bdays"></div>
+    </div>
+    <div class="sec">
+      <div class="st">Today's breakdown</div>
+      <div class="card" id="dash-bars"></div>
+    </div>
+  </div>
+
+  <div class="screen" id="s-tasks" style="display:none">
+    <div class="ph">
+      <div><div class="pt">My Tasks</div><div class="ps">Manage categories & subtasks</div></div>
+      <button class="chip" onclick="openAddTask()">+ Add</button>
+    </div>
+    <div class="sec">
+      <div class="st">Active categories</div>
+      <div id="task-list"></div>
+      <button class="add-dash" onclick="openAddTask()">+ Add new category</button>
+    </div>
+  </div>
+
+  <div class="screen" id="s-sched" style="display:none">
+    <div class="ph">
+      <div><div class="pt">Schedule</div><div class="ps">Templates & daily plan</div></div>
+      <div style="display:flex;gap:6px">
+        <button class="chip ghost" id="tab-tpl-btn" onclick="showSchedTab('templates')">Templates</button>
+        <button class="chip" id="tab-cal-btn" onclick="showSchedTab('calendar')">Calendar</button>
+      </div>
+    </div>
+    <div id="sched-templates-view">
+      <div class="sec">
+        <div class="st">My templates</div>
+        <div id="tpl-list"></div>
+        <button class="add-dash" onclick="openAddTpl()">+ Create new template</button>
+      </div>
+    </div>
+    <div id="sched-calendar-view" style="display:none">
+      <div class="date-row" id="date-strip"></div>
+      <div class="sec">
+        <div class="st" id="cal-date-label">Today's schedule</div>
+        <div class="st" style="margin-bottom:8px;color:var(--tx2);font-size:11px;text-transform:none;letter-spacing:0;margin-top:-6px">Assign a template for this day:</div>
+        <div class="assign-tpl-row" id="assign-row"></div>
+        <div id="cal-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="s-update" style="display:none">
+    <div class="ph"><div><div class="pt">Update Status</div><div class="ps">Log today's progress</div></div></div>
+    <div class="date-row" id="date-strip-2"></div>
+    <div class="sec"><div class="st">Tasks</div><div id="su-list"></div></div>
+  </div>
+
+  <div class="nav">
+    <div class="ni act" onclick="showS('dash',this)"><div class="ni-dot"></div><div class="ni-ico">📊</div><div class="ni-lbl">Dashboard</div></div>
+    <div class="ni" onclick="showS('tasks',this)"><div class="ni-dot"></div><div class="ni-ico">📋</div><div class="ni-lbl">Tasks</div></div>
+    <div class="ni" onclick="showS('sched',this)"><div class="ni-dot"></div><div class="ni-ico">🗓</div><div class="ni-lbl">Schedule</div></div>
+    <div class="ni" onclick="showS('update',this)"><div class="ni-dot"></div><div class="ni-ico">✅</div><div class="ni-lbl">Update</div></div>
+  </div>
+
+  <div id="modal" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.72);z-index:50;flex-direction:column;justify-content:flex-end">
+    <div class="modal" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+const S={
+  tasks:[
+    {id:'1',name:'Sleep',icon:'🌙',color:'#5BC4A0',subtasks:['Night Sleep','Power Nap'],hours:8},
+    {id:'2',name:'Learning',icon:'📚',color:'#7C6DED',subtasks:['Mathematics','English','Science'],hours:3},
+    {id:'3',name:'Exercise',icon:'🏋️',color:'#F0A83E',subtasks:['Cardio','Yoga','Weights'],hours:1},
+    {id:'4',name:'Work',icon:'💼',color:'#F06B6B',subtasks:['Deep Work','Meetings','Emails'],hours:8}
+  ],
+  templates:[
+    {id:'t1',name:'Weekday Routine',color:'#7C6DED',blocks:[
+      {start:'06:00',end:'08:00',taskId:'1',sub:'Night Sleep'},
+      {start:'08:00',end:'10:00',taskId:'2',sub:'Mathematics'},
+      {start:'10:00',end:'11:00',taskId:'3',sub:'Cardio'},
+      {start:'11:00',end:'14:00',taskId:'4',sub:'Deep Work'},
+      {start:'15:00',end:'16:00',taskId:'2',sub:'English'},
+      {start:'22:00',end:'06:00',taskId:'1',sub:'Night Sleep'}
+    ]},
+    {id:'t2',name:'Weekend Light',color:'#5BC4A0',blocks:[
+      {start:'07:00',end:'09:00',taskId:'1',sub:'Night Sleep'},
+      {start:'09:00',end:'10:00',taskId:'3',sub:'Yoga'},
+      {start:'11:00',end:'13:00',taskId:'2',sub:'English'},
+      {start:'23:00',end:'07:00',taskId:'1',sub:'Night Sleep'}
+    ]}
+  ],
+  dateMap:{},blockStatus:{},
+  statusUpdates:{
+    '1':{actual:8,scheduled:8,status:'completed'},
+    '2':{actual:2,scheduled:3,status:'partial'},
+    '3':{actual:.75,scheduled:1,status:'partial'},
+    '4':{actual:6,scheduled:8,status:'partial'}
+  },
+  selectedDate:todayStr(),schedTab:'templates'
+};
+
+function todayStr(){return new Date().toISOString().split('T')[0]}
+function getTask(id){return S.tasks.find(t=>t.id===id)}
+
+function showS(name,el){
+  document.querySelectorAll('.screen').forEach(s=>s.style.display='none');
+  document.getElementById('s-'+name).style.display='block';
+  document.querySelectorAll('.ni').forEach(n=>n.classList.remove('act'));
+  el.classList.add('act');
+  if(name==='tasks')renderTasks();
+  if(name==='sched'){renderTemplates();renderCalendar();}
+  if(name==='update')renderUpdate();
+  if(name==='dash')renderDash();
+}
+
+function showSchedTab(tab){
+  S.schedTab=tab;
+  document.getElementById('sched-templates-view').style.display=tab==='templates'?'block':'none';
+  document.getElementById('sched-calendar-view').style.display=tab==='calendar'?'block':'none';
+  const tb=document.getElementById('tab-tpl-btn'),cb=document.getElementById('tab-cal-btn');
+  if(tab==='templates'){tb.classList.remove('ghost');cb.classList.add('ghost');}
+  else{cb.classList.remove('ghost');tb.classList.add('ghost');}
+  if(tab==='calendar')renderCalendar();
+}
+
+function closeModal(){document.getElementById('modal').style.display='none'}
+document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal()});
+function openModal(html){document.getElementById('modal-body').innerHTML=html;document.getElementById('modal').style.display='flex';}
+
+function renderDash(){
+  renderBarChart('d');
+  const bars=document.getElementById('dash-bars');
+  bars.innerHTML=S.tasks.map(t=>{
+    const su=S.statusUpdates[t.id]||{actual:0,scheduled:1};
+    const p=Math.min(100,Math.round(su.actual/su.scheduled*100));
+    return`<div class="row" style="margin-bottom:8px"><div style="width:70px;font-size:12px;color:var(--tx2)">${t.name}</div><div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${p}%;background:${t.color}"></div></div><div style="font-size:12px;font-weight:600;color:${t.color};width:32px;text-align:right">${su.actual}h</div></div>`;
+  }).join('');
+}
+
+function setPeriod(el,p){
+  document.querySelectorAll('.ptab').forEach(t=>t.classList.remove('act'));
+  el.classList.add('act');renderBarChart(p);
+}
+
+function renderBarChart(p){
+  const data=p==='m'?[{l:'W1',v:72},{l:'W2',v:80},{l:'W3',v:65},{l:'W4',v:78}]:[{l:'Mon',v:65},{l:'Tue',v:80},{l:'Wed',v:55},{l:'Thu',v:90},{l:'Fri',v:78},{l:'Sat',v:88},{l:'Sun',v:60}];
+  const cols=['#7C6DED','#5BC4A0','#7C6DED','#5BC4A0','#F0A83E','#5BC4A0','#7C6DED'];
+  const maxH=75;
+  document.getElementById('bchart').innerHTML=data.map((d,i)=>`<div class="bcol"><div class="bval">${d.v}%</div><div class="bbar" style="height:${Math.round(d.v/100*maxH)}px;background:${cols[i%cols.length]}"></div></div>`).join('');
+  document.getElementById('bdays').innerHTML=data.map(d=>`<div style="flex:1;text-align:center;font-size:9px;color:var(--tx3)">${d.l}</div>`).join('');
+}
+
+function renderTasks(){
+  const list=document.getElementById('task-list');
+  list.innerHTML=S.tasks.map(t=>{
+    const su=S.statusUpdates[t.id];
+    const p=su?Math.min(100,Math.round(su.actual/su.scheduled*100)):0;
+    return`<div class="card tap" onclick="openTaskDetail('${t.id}')">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <div class="row"><span style="font-size:20px">${t.icon}</span><div><div style="font-size:15px;font-weight:600">${t.name}</div><div style="font-size:12px;color:var(--tx2)">${t.subtasks.length} subtasks</div></div></div>
+        <span class="badge" style="background:${t.color}22;color:${t.color}">${p}%</span>
+      </div>
+      ${t.subtasks.slice(0,3).map(s=>`<div class="row" style="gap:7px;padding:2px 0"><div style="width:6px;height:6px;border-radius:50%;background:${t.color}"></div><div style="font-size:13px;color:var(--tx2)">${s}</div></div>`).join('')}
+      ${t.subtasks.length>3?`<div style="font-size:12px;color:var(--tx3);margin-top:2px">+${t.subtasks.length-3} more</div>`:''}
+      <div class="bar-track"><div class="bar-fill" style="width:${p}%;background:${t.color}"></div></div>
+    </div>`;
+  }).join('');
+}
+
+function openTaskDetail(taskId){
+  const t=getTask(taskId);
+  openModal(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><span style="font-size:28px">${t.icon}</span><div class="modal-title" style="margin:0">${t.name}</div></div>
+    <div class="st" style="margin-bottom:8px">Subtasks</div>
+    <div id="sub-list-${t.id}">${renderSubList(t)}</div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input class="inp" id="new-sub-inp" placeholder="Add subtask..." style="flex:1" onkeydown="if(event.key==='Enter')addSub('${t.id}')">
+      <button class="btn-p" style="flex:none;padding:9px 16px" onclick="addSub('${t.id}')">Add</button>
+    </div>
+    <div class="m-actions"><button class="btn-s" onclick="closeModal()">Close</button></div>`);
+}
+
+function renderSubList(t){
+  return t.subtasks.map((s,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--bord)"><div style="width:7px;height:7px;border-radius:50%;background:${t.color}"></div><span style="flex:1;font-size:14px">${s}</span><span onclick="removeSub('${t.id}',${i})" style="color:var(--a3);cursor:pointer;font-size:16px;padding:0 4px">×</span></div>`).join('');
+}
+
+function addSub(tid){
+  const inp=document.getElementById('new-sub-inp');
+  if(!inp.value.trim())return;
+  getTask(tid).subtasks.push(inp.value.trim());
+  inp.value='';
+  document.getElementById('sub-list-'+tid).innerHTML=renderSubList(getTask(tid));
+}
+
+function removeSub(tid,idx){
+  getTask(tid).subtasks.splice(idx,1);
+  document.getElementById('sub-list-'+tid).innerHTML=renderSubList(getTask(tid));
+}
+
+const COLORS=['#5BC4A0','#7C6DED','#F06B6B','#F0A83E','#378ADD','#E85DC0','#4CAF50','#FF7043'];
+const ICONS=['📚','🌙','🏋️','💼','🎵','🍎','🧘','💡','🎯','🖥️'];
+
+function openAddTask(){
+  openModal(`<div class="modal-title">New Category</div>
+    <div class="inp-grp"><label class="inp-lbl">Name</label><input class="inp" id="nt-name" placeholder="e.g. Reading, Meditation..."></div>
+    <div class="inp-grp"><label class="inp-lbl">Icon</label><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:5px">${ICONS.map(ic=>`<div onclick="selIcon(this,'${ic}')" style="width:36px;height:36px;border-radius:8px;background:var(--surf2);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;border:2px solid transparent" data-ic="${ic}">${ic}</div>`).join('')}</div></div>
+    <div class="inp-grp"><label class="inp-lbl">Color</label><div class="color-opts">${COLORS.map((c,i)=>`<div class="copt${i===0?' sel':''}" style="background:${c}" onclick="selColor(this)" data-c="${c}"></div>`).join('')}</div></div>
+    <div class="inp-grp"><label class="inp-lbl">Subtasks (comma-separated)</label><input class="inp" id="nt-subs" placeholder="e.g. Math, English, Science"></div>
+    <div class="inp-grp"><label class="inp-lbl">Daily target (hours)</label><input class="inp" id="nt-hrs" type="number" value="2" min="0.5" max="24" step="0.5" style="width:90px"></div>
+    <div class="m-actions"><button class="btn-s" onclick="closeModal()">Cancel</button><button class="btn-p" onclick="saveTask()">Create</button></div>`);
+}
+
+function selIcon(el,ic){document.querySelectorAll('[data-ic]').forEach(e=>e.style.borderColor='transparent');el.style.borderColor='var(--acc)';el.dataset.sel='1'}
+function selColor(el){document.querySelectorAll('.copt').forEach(e=>e.classList.remove('sel'));el.classList.add('sel')}
+
+function saveTask(){
+  const name=document.getElementById('nt-name').value.trim();
+  if(!name)return;
+  const ic=document.querySelector('[data-ic][data-sel]');
+  const cl=document.querySelector('.copt.sel');
+  const subs=document.getElementById('nt-subs').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const hrs=parseFloat(document.getElementById('nt-hrs').value)||2;
+  const id=Date.now().toString();
+  S.tasks.push({id,name,icon:ic?ic.dataset.ic:'📌',color:cl?cl.dataset.c:'#7C6DED',subtasks:subs.length?subs:['Task 1'],hours:hrs});
+  S.statusUpdates[id]={actual:0,scheduled:hrs,status:'pending'};
+  closeModal();renderTasks();
+}
+
+function renderTemplates(){
+  const list=document.getElementById('tpl-list');
+  if(!list)return;
+  list.innerHTML=S.templates.length===0?`<div style="text-align:center;padding:30px;color:var(--tx3)">No templates yet. Create your first one.</div>`:
+    S.templates.map(tpl=>`<div class="tpl-card">
+      <div class="tpl-header">
+        <div><div class="row" style="gap:8px"><div style="width:10px;height:10px;border-radius:50%;background:${tpl.color}"></div><div class="tpl-name">${tpl.name}</div></div>
+        <div class="tpl-count" style="margin-top:3px;margin-left:18px">${tpl.blocks.length} time blocks</div></div>
+        <div class="tpl-actions"><button class="icon-btn" onclick="editTpl('${tpl.id}')">Edit</button><button class="icon-btn danger" onclick="deleteTpl('${tpl.id}')">Delete</button></div>
+      </div>
+      <div class="tpl-blocks">${tpl.blocks.map(b=>{const t=getTask(b.taskId);return t?`<span class="tpl-blk" style="background:${t.color}22;color:${t.color}">${b.start} ${t.icon} ${t.name}</span>`:''}).join('')}</div>
+    </div>`).join('');
+}
+
+function openAddTpl(){
+  window._tplBlocks=[];
+  openModal(`<div class="modal-title">Create Template</div>
+    <div class="inp-grp"><label class="inp-lbl">Template name</label><input class="inp" id="tpl-name" placeholder="e.g. Weekday Routine, Study Day..."></div>
+    <div class="inp-grp"><label class="inp-lbl">Color</label><div class="color-opts">${COLORS.map((c,i)=>`<div class="copt${i===0?' sel':''}" style="background:${c}" onclick="selColor(this)" data-c="${c}"></div>`).join('')}</div></div>
+    <div class="inp-grp"><label class="inp-lbl">Add time blocks</label>
+      <div id="tpl-block-list" style="margin-bottom:8px"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label class="inp-lbl">Start</label><input class="inp" id="blk-start" type="time" value="08:00"></div>
+        <div><label class="inp-lbl">End</label><input class="inp" id="blk-end" type="time" value="09:00"></div>
+      </div>
+      <select class="inp" id="blk-task" onchange="updateBlkSubs()" style="margin-bottom:8px">${S.tasks.map(t=>`<option value="${t.id}">${t.icon} ${t.name}</option>`).join('')}</select>
+      <select class="inp" id="blk-sub" style="margin-bottom:8px">${S.tasks[0]?S.tasks[0].subtasks.map(s=>`<option>${s}</option>`).join(''):''}</select>
+      <button class="icon-btn" style="width:100%;padding:9px" onclick="addBlockToForm()">+ Add this block</button>
+    </div>
+    <div class="m-actions"><button class="btn-s" onclick="closeModal()">Cancel</button><button class="btn-p" onclick="saveTpl()">Save Template</button></div>`);
+}
+
+function updateBlkSubs(){
+  const tid=document.getElementById('blk-task').value;
+  const t=getTask(tid);const sel=document.getElementById('blk-sub');
+  if(sel&&t)sel.innerHTML=t.subtasks.map(s=>`<option>${s}</option>`).join('');
+}
+
+function refreshBlockList(){
+  const list=document.getElementById('tpl-block-list');
+  if(!list)return;
+  list.innerHTML=(window._tplBlocks||[]).map((b,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surf2);border-radius:var(--r2);margin-bottom:5px"><span style="font-size:12px;color:var(--tx2);flex:1">${b.start}–${b.end} · ${getTask(b.taskId)?.icon||''} ${b.sub}</span><span onclick="removeBlk(${i})" style="color:var(--a3);cursor:pointer;font-size:16px">×</span></div>`).join('');
+}
+
+function addBlockToForm(){
+  const start=document.getElementById('blk-start')?.value;
+  const end=document.getElementById('blk-end')?.value;
+  const taskId=document.getElementById('blk-task')?.value;
+  const sub=document.getElementById('blk-sub')?.value;
+  if(!start||!end||!taskId)return;
+  window._tplBlocks=window._tplBlocks||[];
+  window._tplBlocks.push({start,end,taskId,sub:sub||''});
+  refreshBlockList();
+}
+
+function removeBlk(i){window._tplBlocks.splice(i,1);refreshBlockList();}
+
+function saveTpl(){
+  const name=document.getElementById('tpl-name').value.trim();
+  if(!name)return;
+  const cl=document.querySelector('.copt.sel');
+  S.templates.push({id:'t'+Date.now(),name,color:cl?cl.dataset.c:'#7C6DED',blocks:window._tplBlocks||[]});
+  closeModal();renderTemplates();if(S.schedTab==='calendar')renderCalendar();
+}
+
+function deleteTpl(tid){
+  if(!confirm('Delete this template? It will also be removed from assigned dates.'))return;
+  S.templates=S.templates.filter(t=>t.id!==tid);
+  Object.keys(S.dateMap).forEach(d=>{if(S.dateMap[d]===tid)delete S.dateMap[d]});
+  renderTemplates();if(S.schedTab==='calendar')renderCalendar();
+}
+
+function editTpl(tid){
+  const tpl=S.templates.find(t=>t.id===tid);
+  window._editTplId=tid;
+  window._tplBlocks=tpl.blocks.map(b=>({...b}));
+  openModal(`<div class="modal-title">Edit: ${tpl.name}</div>
+    <div class="inp-grp"><label class="inp-lbl">Template name</label><input class="inp" id="tpl-name" value="${tpl.name}"></div>
+    <div class="inp-grp"><label class="inp-lbl">Color</label><div class="color-opts">${COLORS.map(c=>`<div class="copt${c===tpl.color?' sel':''}" style="background:${c}" onclick="selColor(this)" data-c="${c}"></div>`).join('')}</div></div>
+    <div class="inp-grp"><label class="inp-lbl">Time blocks</label>
+      <div id="tpl-block-list">${window._tplBlocks.map((b,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surf2);border-radius:var(--r2);margin-bottom:5px"><span style="font-size:12px;color:var(--tx2);flex:1">${b.start}–${b.end} · ${getTask(b.taskId)?.icon||''} ${b.sub}</span><span onclick="removeBlk(${i})" style="color:var(--a3);cursor:pointer;font-size:16px">×</span></div>`).join('')}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0">
+        <div><label class="inp-lbl">Start</label><input class="inp" id="blk-start" type="time" value="08:00"></div>
+        <div><label class="inp-lbl">End</label><input class="inp" id="blk-end" type="time" value="09:00"></div>
+      </div>
+      <select class="inp" id="blk-task" onchange="updateBlkSubs()" style="margin-bottom:8px">${S.tasks.map(t=>`<option value="${t.id}">${t.icon} ${t.name}</option>`).join('')}</select>
+      <select class="inp" id="blk-sub" style="margin-bottom:8px">${S.tasks[0]?S.tasks[0].subtasks.map(s=>`<option>${s}</option>`).join(''):''}</select>
+      <button class="icon-btn" style="width:100%;padding:9px" onclick="addBlockToForm()">+ Add block</button>
+    </div>
+    <div class="m-actions"><button class="btn-s" onclick="closeModal()">Cancel</button><button class="btn-p" onclick="updateTpl()">Update</button></div>`);
+}
+
+function updateTpl(){
+  const idx=S.templates.findIndex(t=>t.id===window._editTplId);if(idx<0)return;
+  const name=document.getElementById('tpl-name').value.trim();
+  const cl=document.querySelector('.copt.sel');
+  S.templates[idx]={...S.templates[idx],name:name||S.templates[idx].name,color:cl?cl.dataset.c:S.templates[idx].color,blocks:window._tplBlocks||[]};
+  closeModal();renderTemplates();if(S.schedTab==='calendar')renderCalendar();
+}
+
+function getWeekDates(){
+  const today=new Date();
+  return Array.from({length:7},(_,i)=>{
+    const d=new Date(today);d.setDate(today.getDate()-3+i);
+    return{date:d.getDate(),day:['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()],isToday:i===3,full:d.toISOString().split('T')[0]};
+  });
+}
+
+function renderCalendar(){
+  const dates=getWeekDates();
+  const strip=document.getElementById('date-strip');if(!strip)return;
+  strip.innerHTML=dates.map(d=>{
+    const assign=S.dateMap[d.full];const isRest=assign==='rest';const hasTpl=assign&&!isRest;
+    return`<div class="dcell${d.isToday?' today':''}${d.full===S.selectedDate&&!d.isToday?' sel':''}${isRest?' rest':''}${hasTpl?' has-tpl':''}" onclick="selectDate('${d.full}')">
+      <div class="dwd">${d.day}</div><div class="dnum">${d.date}</div>
+      ${isRest?`<div style="font-size:8px;color:var(--a3)">rest</div>`:''}
+    </div>`;
+  }).join('');
+  renderDateContent();
+}
+
+function selectDate(full){S.selectedDate=full;renderCalendar();}
+
+function renderDateContent(){
+  const label=document.getElementById('cal-date-label');
+  const assign=S.dateMap[S.selectedDate];
+  const dateObj=new Date(S.selectedDate+'T00:00:00');
+  const dn=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dateObj.getDay()];
+  if(label)label.textContent=`${dn}'s schedule`;
+  const arow=document.getElementById('assign-row');
+  if(arow){
+    arow.innerHTML=S.templates.map(tpl=>`<div class="assign-chip${assign===tpl.id?' sel':''}" onclick="assignDate('${tpl.id}')">${tpl.name}</div>`).join('')+
+      `<div class="assign-chip rest-chip${assign==='rest'?' sel':''}" onclick="assignDate('rest')">🛌 Rest Day</div>`+
+      (assign?`<div class="assign-chip" onclick="assignDate('')" style="color:var(--a3)">✕ Clear</div>`:'');
+  }
+  const cont=document.getElementById('cal-content');if(!cont)return;
+  if(assign==='rest'){
+    cont.innerHTML=`<div class="rest-banner"><div class="rest-ico">🛌</div><div class="rest-title">Rest Day</div><div class="rest-sub">No schedule for this day. Rest, recover, and recharge.</div><button class="rest-btn" onclick="assignDate('')">Remove rest day</button></div>`;
+    return;
+  }
+  if(!assign){
+    cont.innerHTML=`<div style="text-align:center;padding:30px;color:var(--tx3)"><div style="font-size:30px;margin-bottom:8px">📅</div><div style="font-size:14px;font-weight:600;margin-bottom:6px">No template assigned</div><div style="font-size:13px">Pick a template above or mark as Rest Day</div></div>`;
+    return;
+  }
+  const tpl=S.templates.find(t=>t.id===assign);
+  if(!tpl){cont.innerHTML='';return;}
+  if(!S.blockStatus[S.selectedDate])S.blockStatus[S.selectedDate]={};
+  cont.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 12px;background:${tpl.color}18;border-radius:var(--r2);border:1px solid ${tpl.color}44">
+    <div style="width:8px;height:8px;border-radius:50%;background:${tpl.color}"></div>
+    <div style="font-size:13px;font-weight:600;color:${tpl.color}">${tpl.name}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-left:auto">${tpl.blocks.length} blocks</div>
+  </div>`+
+  tpl.blocks.map((b,i)=>{
+    const t=getTask(b.taskId);if(!t)return'';
+    const bStatus=S.blockStatus[S.selectedDate][i]||'pending';
+    const sc={completed:{color:'#5BC4A0',bg:'rgba(91,196,160,.12)'},'in-progress':{color:'#F0A83E',bg:'rgba(240,168,62,.12)'},pending:{color:'#5A5972',bg:'transparent'}}[bStatus]||{color:'#5A5972',bg:'transparent'};
+    const dur=calcDur(b.start,b.end);
+    return`<div class="sched-item">
+      <div class="time-col"><div class="t-range">${b.start}</div><div class="t-range">${b.end}</div><div class="t-dur">${dur}</div></div>
+      <div class="sched-card" style="border-left-color:${t.color}">
+        <div class="scard-top">
+          <div><div class="scard-name">${t.icon} ${t.name}</div><div class="scard-sub">${b.sub}</div></div>
+          <span class="spill" style="color:${sc.color};border-color:${sc.color};background:${sc.bg}" onclick="cycleBlockStatus('${S.selectedDate}',${i})">${bStatus==='in-progress'?'Active':bStatus.charAt(0).toUpperCase()+bStatus.slice(1)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function assignDate(tplId){
+  if(tplId==='')delete S.dateMap[S.selectedDate];
+  else S.dateMap[S.selectedDate]=tplId;
+  renderCalendar();
+}
+
+function cycleBlockStatus(dateKey,blockIdx){
+  if(!S.blockStatus[dateKey])S.blockStatus[dateKey]={};
+  const cyc=['pending','in-progress','completed'];
+  const cur=S.blockStatus[dateKey][blockIdx]||'pending';
+  S.blockStatus[dateKey][blockIdx]=cyc[(cyc.indexOf(cur)+1)%cyc.length];
+  renderDateContent();
+}
+
+function calcDur(start,end){
+  const[sh,sm]=start.split(':').map(Number);let[eh,em]=end.split(':').map(Number);
+  if(eh<sh)eh+=24;const mins=(eh*60+em)-(sh*60+sm);if(mins<=0)return'0m';
+  const h=Math.floor(mins/60),m=mins%60;return h===0?`${m}m`:m===0?`${h}h`:`${h}h ${m}m`;
+}
+
+function renderUpdate(){
+  const dates=getWeekDates();
+  const strip=document.getElementById('date-strip-2');
+  if(strip)strip.innerHTML=dates.map(d=>`<div class="dcell${d.isToday?' today':''}"><div class="dwd">${d.day}</div><div class="dnum">${d.date}</div></div>`).join('');
+  const list=document.getElementById('su-list');
+  list.innerHTML=S.tasks.map(t=>{
+    const su=S.statusUpdates[t.id]||{actual:0,scheduled:t.hours,status:'pending'};
+    const p=Math.min(100,Math.round(su.actual/su.scheduled*100));
+    const rem=Math.max(0,su.scheduled-su.actual).toFixed(1);
+    const sc=su.status==='completed'?{bg:'rgba(91,196,160,.12)',cl:'#5BC4A0',lbl:'✓ Done'}:su.status==='partial'?{bg:'rgba(240,168,62,.12)',cl:'#F0A83E',lbl:'◑ Partial'}:{bg:'rgba(90,89,114,.15)',cl:'#5A5972',lbl:'○ Pending'};
+    return`<div class="su-card" style="border-left-color:${t.color}">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <div class="row"><span style="font-size:22px">${t.icon}</span><div><div style="font-size:15px;font-weight:600">${t.name}</div><div style="font-size:12px;color:var(--tx2)">${su.actual}h done · ${rem}h left</div></div></div>
+        <span class="badge" style="background:${sc.bg};color:${sc.cl}">${sc.lbl}</span>
+      </div>
+      <div class="bar-track" style="height:6px;margin-bottom:10px"><div class="bar-fill" style="width:${p}%;background:${t.color};height:6px"></div></div>
+      <div class="hours-display">
+        <div class="hbox"><div class="hnum" style="color:${t.color}">${su.actual}</div><div class="hunit">completed</div></div>
+        <div class="hdiv"></div>
+        <div class="hbox"><div class="hnum">${su.scheduled}</div><div class="hunit">scheduled</div></div>
+        <div class="hdiv"></div>
+        <div class="hbox"><div class="hnum" style="color:var(--acc)">${p}%</div><div class="hunit">complete</div></div>
+      </div>
+      <div class="slider-wrap">
+        <div class="slider-lbl">Adjust actual hours</div>
+        <input type="range" min="0" max="${su.scheduled}" step="0.5" value="${su.actual}" oninput="updateHours('${t.id}',parseFloat(this.value))">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--tx3)"><span>0h</span><span>${su.scheduled/2}h</span><span>${su.scheduled}h</span></div>
+      </div>
+      <div class="status-btns">
+        <div class="sbtn${su.status==='pending'?' pend':''}" onclick="setSt('${t.id}','pending')">○ Pending</div>
+        <div class="sbtn${su.status==='partial'?' part':''}" onclick="setSt('${t.id}','partial')">◑ Partial</div>
+        <div class="sbtn${su.status==='completed'?' done':''}" onclick="setSt('${t.id}','completed')">✓ Done</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateHours(tid,val){
+  const su=S.statusUpdates[tid]||{};
+  su.actual=parseFloat(val.toFixed(1));
+  su.status=su.actual>=su.scheduled?'completed':su.actual>0?'partial':'pending';
+  S.statusUpdates[tid]=su;renderUpdate();
+}
+
+function setSt(tid,st){
+  const su=S.statusUpdates[tid]||{actual:0,scheduled:2};
+  if(st==='completed')su.actual=su.scheduled;
+  su.status=st;S.statusUpdates[tid]=su;renderUpdate();
+}
+
+renderDash();
+renderTemplates();
+S.dateMap[todayStr()]=S.templates[0]?.id||'';
+const d2=new Date();d2.setDate(d2.getDate()+2);S.dateMap[d2.toISOString().split('T')[0]]='rest';
+const d3=new Date();d3.setDate(d3.getDate()-1);S.dateMap[d3.toISOString().split('T')[0]]=S.templates[1]?.id||'';
+</script>
+</body>
+</html>

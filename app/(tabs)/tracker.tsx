@@ -1,20 +1,52 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { trackerTheme } from '@/constants/trackerTheme';
 import { useTrackerContext } from '@/app/context/TrackerContext';
+import { trackerTheme } from '@/constants/trackerTheme';
+import React, { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+function calcScheduledHours(blocks: {start: string, end: string, taskId: number, sub?: string}[], taskId: number, sub?: string) {
+  let total = 0;
+  blocks.forEach(b => {
+    if (b.taskId === taskId && b.sub === sub) {
+      const [sh, sm] = b.start.split(':').map(Number);
+      let [eh, em] = b.end.split(':').map(Number);
+      if (eh < sh) eh += 24;
+      total += (eh * 60 + (em || 0) - (sh * 60 + (sm || 0))) / 60;
+    }
+  });
+  return Number(total.toFixed(1));
+}
 
 export default function UpdateScreen() {
   const insets = useSafeAreaInsets();
-  const { tasks, statusUpdates, updateStatus, updateStatusHours } = useTrackerContext();
+  const { tasks, statusUpdates, updateStatus, updateStatusHours, dateMap, templates } = useTrackerContext();
 
   const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+
   const dateStrip = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today);
     d.setDate(today.getDate() - 3 + i);
-    return { day: days[d.getDay()], date: d.getDate(), isToday: i === 3 };
+    const full = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { day: days[d.getDay()], date: d.getDate(), full, isToday: i === 3 };
   });
+
+  const assignedTemplateId = dateMap[selectedDate];
+  const assignedTemplate = templates.find(t => t.id === assignedTemplateId);
+
+  const scheduledItems: { task: any, taskId: number, sub: string }[] = [];
+  if (assignedTemplate) {
+    assignedTemplate.blocks.forEach(b => {
+      const t = tasks.find(x => x.id === b.taskId);
+      if (t) {
+        if (!scheduledItems.some(i => i.taskId === b.taskId && i.sub === b.sub)) {
+          scheduledItems.push({ task: t, taskId: b.taskId, sub: b.sub });
+        }
+      }
+    });
+  }
 
   const statusLabels = ['pending', 'partial', 'completed'] as const;
 
@@ -30,25 +62,60 @@ export default function UpdateScreen() {
       <View style={styles.dateStrip}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}>
           {dateStrip.map((d, i) => (
-            <View key={i} style={[styles.dateCell, d.isToday && styles.dateCellToday]}>
+            <TouchableOpacity 
+              key={i} 
+              style={[
+                styles.dateCell, 
+                d.isToday && styles.dateCellToday,
+                selectedDate === d.full && !d.isToday && styles.dateCellSel
+              ]}
+              onPress={() => setSelectedDate(d.full)}
+            >
               <Text style={[styles.dateWd, d.isToday && styles.dateWdToday]}>{d.day}</Text>
               <Text style={[styles.dateNum, d.isToday && styles.dateNumToday]}>{d.date}</Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
       <ScrollView contentContainerStyle={styles.section}>
-        <Text style={styles.sectionTitle}>Today's Tasks</Text>
-        {tasks.map(task => {
-          const su = statusUpdates[task.id] || { actual: 0, scheduled: 3, status: 'pending' };
-          const pct = Math.min(100, Math.round((su.actual / su.scheduled) * 100)) || 0;
-          return (
-            <View key={task.id} style={styles.statusUpdateCard}>
+        <Text style={styles.sectionTitle}>
+          {assignedTemplateId === 'rest' ? 'Rest Day' : selectedDate === todayStr ? "Today's Tasks" : "Scheduled Tasks"}
+        </Text>
+        
+        {assignedTemplateId === 'rest' ? (
+          <View style={{ padding: 30, alignItems: 'center' }}>
+            <Text style={{ fontSize: 30, marginBottom: 10 }}>🛌</Text>
+            <Text style={{ color: trackerTheme.colors.text2 }}>Rest day. No tasks scheduled.</Text>
+          </View>
+        ) : !assignedTemplateId ? (
+          <View style={{ padding: 30, alignItems: 'center' }}>
+            <Text style={{ fontSize: 30, marginBottom: 10 }}>📅</Text>
+            <Text style={{ color: trackerTheme.colors.text2 }}>No template assigned for this date.</Text>
+          </View>
+        ) : scheduledItems.length === 0 ? (
+          <View style={{ padding: 30, alignItems: 'center' }}>
+            <Text style={{ color: trackerTheme.colors.text2 }}>No tasks in this template.</Text>
+          </View>
+        ) : (
+          scheduledItems.map(item => {
+            const updateId = item.sub ? `${item.taskId}_${item.sub}` : String(item.taskId);
+            const calculatedScheduled = assignedTemplate ? calcScheduledHours(assignedTemplate.blocks, item.taskId, item.sub) : 0;
+            const displayScheduled = calculatedScheduled > 0 ? calculatedScheduled : (statusUpdates[updateId]?.scheduled || 3);
+            const su = statusUpdates[updateId] || { actual: 0, scheduled: displayScheduled, status: 'pending' };
+            const pct = Math.min(100, Math.round((su.actual / displayScheduled) * 100)) || 0;
+            
+            return (
+            <View key={updateId} style={styles.statusUpdateCard}>
               <View style={styles.statusHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontSize: 20 }}>{task.icon}</Text>
-                  <Text style={styles.statusName}>{task.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 10 }}>
+                  <Text style={{ fontSize: 20 }}>{item.task.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.statusName}>{item.task.name}</Text>
+                    {item.sub ? (
+                      <Text style={{ fontSize: 12, color: trackerTheme.colors.text2, marginTop: 2 }}>{item.sub}</Text>
+                    ) : null}
+                  </View>
                 </View>
                 <View style={styles.statusToggle}>
                   {statusLabels.map(s => {
@@ -62,7 +129,7 @@ export default function UpdateScreen() {
                       else { bgColor = trackerTheme.colors.surface3; borderColor = trackerTheme.colors.text3; textColor = trackerTheme.colors.text; }
                     }
                     return (
-                      <TouchableOpacity key={s} onPress={() => updateStatus(task.id, s)} style={[styles.statusPill, { backgroundColor: bgColor, borderColor }]}>
+                      <TouchableOpacity key={s} onPress={() => updateStatus(updateId, s, displayScheduled)} style={[styles.statusPill, { backgroundColor: bgColor, borderColor }]}>
                         <Text style={{ fontSize: 11, fontWeight: '600', color: textColor }}>{s}</Text>
                       </TouchableOpacity>
                     );
@@ -72,30 +139,31 @@ export default function UpdateScreen() {
 
               <View style={styles.hoursRow}>
                 <Text style={styles.hoursLabel}>Completed</Text>
-                <View style={styles.hoursBar}><View style={[styles.hoursFill, { width: `${pct}%`, backgroundColor: task.color }]} /></View>
-                <Text style={[styles.hoursVal, { color: task.color }]}>{su.actual}h</Text>
+                <View style={styles.hoursBar}><View style={[styles.hoursFill, { width: `${pct}%`, backgroundColor: item.task.color }]} /></View>
+                <Text style={[styles.hoursVal, { color: item.task.color }]}>{su.actual}h</Text>
               </View>
               <View style={styles.hoursRow}>
                 <Text style={styles.hoursLabel}>Scheduled</Text>
                 <View style={styles.hoursBar}><View style={[styles.hoursFill, { width: '100%', backgroundColor: trackerTheme.colors.surface3 }]} /></View>
-                <Text style={styles.hoursVal}>{su.scheduled}h</Text>
+                <Text style={styles.hoursVal}>{displayScheduled}h</Text>
               </View>
 
               <View style={{ marginTop: 10 }}>
                 <Text style={{ fontSize: 11, color: trackerTheme.colors.text3, marginBottom: 8 }}>Adjust actual hours</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(task.id, Math.max(0, su.actual - 0.5))}>
+                  <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(updateId, Math.max(0, su.actual - 0.5), displayScheduled)}>
                     <Text style={styles.adjustBtnText}>-</Text>
                   </TouchableOpacity>
                   <Text style={{ flex: 1, textAlign: 'center', color: trackerTheme.colors.text, fontSize: 16, fontWeight: '600' }}>{su.actual}h</Text>
-                  <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(task.id, Math.min(su.scheduled, su.actual + 0.5))}>
+                  <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(updateId, Math.min(displayScheduled, su.actual + 0.5), displayScheduled)}>
                     <Text style={styles.adjustBtnText}>+</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             </View>
           );
-        })}
+        })
+      )}
       </ScrollView>
     </View>
   );
@@ -109,6 +177,7 @@ const styles = StyleSheet.create({
   dateStrip: { paddingBottom: 16 },
   dateCell: { width: 44, height: 56, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: trackerTheme.colors.border },
   dateCellToday: { backgroundColor: trackerTheme.colors.accent, borderColor: trackerTheme.colors.accent },
+  dateCellSel: { borderColor: trackerTheme.colors.accent, backgroundColor: 'rgba(124,109,237,.15)' },
   dateWd: { fontSize: 10, color: trackerTheme.colors.text3 },
   dateWdToday: { color: 'rgba(255,255,255,0.7)' },
   dateNum: { fontSize: 15, fontWeight: '700', color: trackerTheme.colors.text },
