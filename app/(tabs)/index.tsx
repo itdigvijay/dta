@@ -1,24 +1,155 @@
+import { useTrackerContext } from '@/app/context/TrackerContext';
 import { trackerTheme } from '@/constants/trackerTheme';
 import { useState } from 'react';
 import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle } from 'react-native-svg';
 
 const { width } = Dimensions.get('window');
 
+const calcDurHours = (start: string, end: string) => {
+  if (!start || !end) return 0;
+  const [sh, sm] = start.split(':').map(Number);
+  let [eh, em] = end.split(':').map(Number);
+  if (eh < sh) eh += 24;
+  return (eh * 60 + (em || 0) - (sh * 60 + (sm || 0))) / 60;
+};
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
+  const { tasks, statusUpdates, schedule } = useTrackerContext();
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
-  const vals = period === 'monthly' ? [72, 80, 65, 78] : [65, 80, 55, 90, 78, 88, 60];
-  const days = period === 'monthly' ? ['W1', 'W2', 'W3', 'W4'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const colors = [trackerTheme.colors.accent, trackerTheme.colors.accent2, trackerTheme.colors.accent, trackerTheme.colors.accent2, trackerTheme.colors.accent4, trackerTheme.colors.accent2, trackerTheme.colors.accent];
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const [reportDate, setReportDate] = useState(todayStr);
+  const getDates = (daysBack: number) => {
+    return Array.from({ length: daysBack }).map((_, i) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() - (daysBack - 1) + i);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    });
+  };
+
+  let chartData: number[] = [];
+  let chartLabels: string[] = [];
+  let chartColors: string[] = [];
+  const colorsPalette = [trackerTheme.colors.accent, trackerTheme.colors.accent2, trackerTheme.colors.accent4, trackerTheme.colors.accent3];
+
+  if (period === 'monthly') {
+    const all28 = getDates(28);
+    for (let w = 0; w < 4; w++) {
+      const weekDates = all28.slice(w * 7, (w + 1) * 7);
+      let act = 0, sch = 0;
+      weekDates.forEach(d => {
+        const daySched = schedule[d] || [];
+        daySched.forEach(item => { sch += calcDurHours(item.start, item.end); });
+
+        const dayData = statusUpdates[d];
+        if (dayData) {
+          Object.values(dayData).forEach(t => { 
+            act += t.actual || 0; 
+            if (t.subtasks) Object.values(t.subtasks).forEach(sub => { act += sub.actual || 0; });
+          });
+        }
+      });
+      chartData.push(sch > 0 ? Math.round((act / sch) * 100) : 0);
+      chartLabels.push(`W${w + 1}`);
+      chartColors.push(colorsPalette[w % colorsPalette.length]);
+    }
+  } else {
+    const last7 = getDates(7);
+    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    last7.forEach((d, i) => {
+      let act = 0, sch = 0;
+      const daySched = schedule[d] || [];
+      daySched.forEach(item => { sch += calcDurHours(item.start, item.end); });
+
+      const dayData = statusUpdates[d];
+      if (dayData) {
+        Object.values(dayData).forEach(t => { 
+          act += t.actual || 0; 
+          if (t.subtasks) Object.values(t.subtasks).forEach(sub => { act += sub.actual || 0; });
+        });
+      }
+      chartData.push(sch > 0 ? Math.round((act / sch) * 100) : 0);
+      const dateObj = new Date(d);
+      chartLabels.push(daysOfWeek[dateObj.getDay()]);
+      chartColors.push(colorsPalette[i % colorsPalette.length]);
+    });
+  }
+
+  const activeDates = period === 'daily' ? getDates(1) : period === 'weekly' ? getDates(7) : getDates(28);
+  let totalActual = 0;
+  let totalSched = 0;
+  const tasksStats: Record<string, { actual: number, scheduled: number, color: string, icon: string }> = {};
+  tasks.forEach(t => { tasksStats[t.name] = { actual: 0, scheduled: 0, color: t.color, icon: t.icon }; });
+
+  activeDates.forEach(d => {
+    const daySched = schedule[d] || [];
+    daySched.forEach(item => {
+      const hours = calcDurHours(item.start, item.end);
+      if (!tasksStats[item.taskName]) {
+         const t = tasks.find(x => x.name === item.taskName);
+         tasksStats[item.taskName] = { actual: 0, scheduled: 0, color: t ? t.color : trackerTheme.colors.accent, icon: t ? t.icon : '📌' };
+      }
+      tasksStats[item.taskName].scheduled += hours;
+      totalSched += hours;
+    });
+
+    const dayData = statusUpdates[d];
+    if (dayData) {
+      Object.entries(dayData).forEach(([tName, tData]) => {
+        if (!tasksStats[tName]) tasksStats[tName] = { actual: 0, scheduled: 0, color: trackerTheme.colors.accent, icon: '📌' };
+        let tAct = tData.actual || 0;
+        if (tData.subtasks) Object.values(tData.subtasks).forEach(sub => { tAct += sub.actual || 0; });
+        tasksStats[tName].actual += tAct;
+        totalActual += tAct;
+      });
+    }
+  });
+
+  const overallProgress = totalSched > 0 ? Math.round((totalActual / totalSched) * 100) : 0;
+  const sortedTasks = Object.entries(tasksStats).sort((a, b) => b[1].scheduled - a[1].scheduled).filter(t => t[1].scheduled > 0);
+  const topTasks = sortedTasks.slice(0, 4); // Get top active tasks for specific highlight cards
+
+  const daysArr = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const reportDateStrip = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - 3 + i);
+    const full = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { day: daysArr[d.getDay()], date: d.getDate(), full, isToday: i === 3 };
+  });
+
+  const reportTasksStats: Record<string, { actual: number, scheduled: number, color: string, icon: string }> = {};
+  tasks.forEach(t => { reportTasksStats[t.name] = { actual: 0, scheduled: 0, color: t.color, icon: t.icon }; });
+
+  const reportDaySched = schedule[reportDate] || [];
+  reportDaySched.forEach(item => {
+    const hours = calcDurHours(item.start, item.end);
+    if (!reportTasksStats[item.taskName]) {
+       const t = tasks.find(x => x.name === item.taskName);
+       reportTasksStats[item.taskName] = { actual: 0, scheduled: 0, color: t ? t.color : trackerTheme.colors.accent, icon: t ? t.icon : '📌' };
+    }
+    reportTasksStats[item.taskName].scheduled += hours;
+  });
+
+  const reportDayData = statusUpdates[reportDate];
+  if (reportDayData) {
+    Object.entries(reportDayData).forEach(([tName, tData]) => {
+      if (!reportTasksStats[tName]) reportTasksStats[tName] = { actual: 0, scheduled: 0, color: trackerTheme.colors.accent, icon: '📌' };
+      let tAct = tData.actual || 0;
+      if (tData.subtasks) Object.values(tData.subtasks).forEach(sub => { tAct += sub.actual || 0; });
+      reportTasksStats[tName].actual += tAct;
+    });
+  }
+
+  const reportSortedTasks = Object.entries(reportTasksStats).sort((a, b) => b[1].scheduled - a[1].scheduled).filter(t => t[1].scheduled > 0 || t[1].actual > 0);
 
   return (
     <ScrollView style={[styles.container, { paddingTop: insets.top }]} contentContainerStyle={{ paddingBottom: 100 }}>
       {/* Greeting */}
       <View style={styles.greetingBanner}>
-        <Text style={styles.greeting}>Good morning,,,,,</Text>
+        <Text style={styles.greeting}>Good morning,</Text>
         <Text style={styles.greetingName}>DailyTracker</Text>
         <View style={styles.streakBadge}>
           <Text style={styles.streakText}>🔥 7 day streak</Text>
@@ -39,86 +170,187 @@ export default function DashboardScreen() {
       </View>
 
       {/* Metrics */}
-      <View style={styles.dashGrid}>
+      {/* <View style={styles.dashGrid}>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Completion</Text>
-          <Text style={[styles.metricVal, { color: trackerTheme.colors.accent2 }]}>78%</Text>
-          <Text style={styles.metricSub}>5 of 7 tasks</Text>
-          <Text style={[styles.metricTrend, styles.trendUp]}>↑ 12% vs yesterday</Text>
+          <Text style={[styles.metricVal, { color: trackerTheme.colors.accent2 }]}>{overallProgress}%</Text>
+          <Text style={styles.metricSub}>{totalActual.toFixed(1)} of {totalSched.toFixed(1)}h logged</Text>
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Active Hours</Text>
-          <Text style={[styles.metricVal, { color: trackerTheme.colors.accent }]}>11.5h</Text>
-          <Text style={styles.metricSub}>of 16h scheduled</Text>
-          <Text style={[styles.metricTrend, styles.trendDown]}>↓ 2h deficit</Text>
+          <Text style={[styles.metricVal, { color: trackerTheme.colors.accent }]}>{totalActual.toFixed(1)}h</Text>
+          <Text style={styles.metricSub}>of {totalSched.toFixed(1)}h scheduled</Text>
         </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Sleep Score</Text>
-          <Text style={[styles.metricVal, { color: trackerTheme.colors.accent2 }]}>8h</Text>
-          <Text style={styles.metricSub}>Target: 8h</Text>
-          <Text style={[styles.metricTrend, styles.trendUp]}>✓ Goal met</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Study Time</Text>
-          <Text style={[styles.metricVal, { color: trackerTheme.colors.accent4 }]}>2h</Text>
-          <Text style={styles.metricSub}>of 3h scheduled</Text>
-          <Text style={[styles.metricTrend, styles.trendDown]}>↓ 1h remaining</Text>
-        </View>
-      </View>
+        
+        {topTasks[0] ? (
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>{topTasks[0][1].icon} {topTasks[0][0]}</Text>
+            <Text style={[styles.metricVal, { color: topTasks[0][1].color }]}>{topTasks[0][1].actual.toFixed(1)}h</Text>
+            <Text style={styles.metricSub}>Target: {topTasks[0][1].scheduled.toFixed(1)}h</Text>
+          </View>
+        ) : (
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Top Task</Text>
+            <Text style={[styles.metricVal, { color: trackerTheme.colors.text3 }]}>-</Text>
+            <Text style={styles.metricSub}>No data</Text>
+          </View>
+        )}
+        {topTasks[1] ? (
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>{topTasks[1][1].icon} {topTasks[1][0]}</Text>
+            <Text style={[styles.metricVal, { color: topTasks[1][1].color }]}>{topTasks[1][1].actual.toFixed(1)}h</Text>
+            <Text style={styles.metricSub}>Target: {topTasks[1][1].scheduled.toFixed(1)}h</Text>
+          </View>
+        ) : (
+           <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Secondary Task</Text>
+            <Text style={[styles.metricVal, { color: trackerTheme.colors.text3 }]}>-</Text>
+            <Text style={styles.metricSub}>No data</Text>
+          </View>
+        )}
+      </View> */}
 
       {/* Week Chart */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Weekly Completion</Text>
+      {/* <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{period === 'monthly' ? 'Monthly' : 'Weekly'} Completion</Text>
         <View style={styles.chartContainer}>
           <View style={styles.barChart}>
-            {vals.map((v, i) => (
+            {chartData.map((v, i) => (
               <View key={i} style={styles.barCol}>
                 <Text style={styles.barVal}>{v}%</Text>
-                <View style={[styles.bar, { height: Math.round((v / 100) * 80), backgroundColor: colors[i % colors.length] }]} />
+                <View style={[styles.bar, { height: Math.max(4, Math.round((v / 100) * 80)), backgroundColor: chartColors[i] }]} />
               </View>
             ))}
           </View>
           <View style={styles.chartDays}>
-            {days.map((d, i) => (
+            {chartLabels.map((d, i) => (
               <View key={i} style={styles.barCol}>
-                <Text style={[styles.barDay, { color: i === 4 ? trackerTheme.colors.accent : trackerTheme.colors.text3 }]}>{d}</Text>
+                <Text style={[styles.barDay, { color: (period === 'daily' && i === 6) ? trackerTheme.colors.accent : trackerTheme.colors.text3 }]}>{d}</Text>
               </View>
             ))}
           </View>
         </View>
-      </View>
+      </View> */}
 
       {/* Ring Chart */}
-      <View style={styles.ringContainer}>
+      {/* <View style={styles.ringContainer}>
         <Svg width={180} height={180} viewBox="0 0 180 180">
-          <Circle cx={90} cy={90} r={70} fill="none" stroke={trackerTheme.colors.surface3} strokeWidth={18} />
-          <Circle cx={90} cy={90} r={70} fill="none" stroke={trackerTheme.colors.accent} strokeWidth={18} strokeDasharray={439.8} strokeDashoffset={97} strokeLinecap="round" rotation={-90} originX={90} originY={90} />
-          <Circle cx={90} cy={90} r={52} fill="none" stroke={trackerTheme.colors.surface3} strokeWidth={14} />
-          <Circle cx={90} cy={90} r={52} fill="none" stroke={trackerTheme.colors.accent2} strokeWidth={14} strokeDasharray={326.7} strokeDashoffset={72} strokeLinecap="round" rotation={-90} originX={90} originY={90} />
-          <Circle cx={90} cy={90} r={36} fill="none" stroke={trackerTheme.colors.surface3} strokeWidth={12} />
-          <Circle cx={90} cy={90} r={36} fill="none" stroke={trackerTheme.colors.accent4} strokeWidth={12} strokeDasharray={226.2} strokeDashoffset={78} strokeLinecap="round" rotation={-90} originX={90} originY={90} />
+          {topTasks.length === 0 && (
+             <Circle cx={90} cy={90} r={70} fill="none" stroke={trackerTheme.colors.surface3} strokeWidth={18} />
+          )}
+          {topTasks.slice(0, 3).map((task, i) => {
+            const radii = [70, 52, 36];
+            const r = radii[i];
+            const circ = 2 * Math.PI * r;
+            const progress = task[1].scheduled > 0 ? Math.min(1, task[1].actual / task[1].scheduled) : 0;
+            const offset = circ - (progress * circ);
+            
+            return (
+              <G key={task[0]}>
+                <Circle cx={90} cy={90} r={r} fill="none" stroke={trackerTheme.colors.surface3} strokeWidth={18 - i * 4} />
+                <Circle cx={90} cy={90} r={r} fill="none" stroke={task[1].color} strokeWidth={18 - i * 4} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" rotation={-90} originX={90} originY={90} />
+              </G>
+            );
+          })}
         </Svg>
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ color: trackerTheme.colors.text, fontSize: 22, fontWeight: '700' }}>78%</Text>
+          <Text style={{ color: trackerTheme.colors.text, fontSize: 22, fontWeight: '700' }}>{overallProgress}%</Text>
           <Text style={{ color: trackerTheme.colors.text2, fontSize: 11 }}>overall</Text>
         </View>
       </View>
 
       <View style={styles.legendRow}>
-        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: trackerTheme.colors.accent }]} /><Text style={styles.legendText}>Learn 78%</Text></View>
-        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: trackerTheme.colors.accent2 }]} /><Text style={styles.legendText}>Sleep 100%</Text></View>
-        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: trackerTheme.colors.accent4 }]} /><Text style={styles.legendText}>Exercise 65%</Text></View>
-      </View>
+        {topTasks.slice(0, 3).map(task => (
+          <View key={task[0]} style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: task[1].color }]} />
+            <Text style={styles.legendText}>{task[0]} {task[1].scheduled > 0 ? Math.round((task[1].actual/task[1].scheduled)*100) : 0}%</Text>
+          </View>
+        ))}
+      </View> */}
 
       {/* Highlights */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Today's Highlights</Text>
+        <Text style={styles.sectionTitle}>{period.charAt(0).toUpperCase() + period.slice(1)} Highlights</Text>
         <View style={styles.highlightCard}>
           <Text style={styles.highlightSub}>Task completion by category</Text>
-          <View style={styles.hoursRow}><Text style={styles.hoursLabel}>Sleep</Text><View style={styles.hoursBar}><View style={[styles.hoursFill, { width: '100%', backgroundColor: trackerTheme.colors.accent2 }]} /></View><Text style={[styles.hoursVal, { color: trackerTheme.colors.accent2 }]}>8/8h</Text></View>
-          <View style={styles.hoursRow}><Text style={styles.hoursLabel}>Learning</Text><View style={styles.hoursBar}><View style={[styles.hoursFill, { width: '66%', backgroundColor: trackerTheme.colors.accent }]} /></View><Text style={[styles.hoursVal, { color: trackerTheme.colors.accent }]}>2/3h</Text></View>
-          <View style={styles.hoursRow}><Text style={styles.hoursLabel}>Exercise</Text><View style={styles.hoursBar}><View style={[styles.hoursFill, { width: '75%', backgroundColor: trackerTheme.colors.accent4 }]} /></View><Text style={[styles.hoursVal, { color: trackerTheme.colors.accent4 }]}>45m</Text></View>
-          <View style={styles.hoursRow}><Text style={styles.hoursLabel}>Work</Text><View style={styles.hoursBar}><View style={[styles.hoursFill, { width: '80%', backgroundColor: trackerTheme.colors.accent3 }]} /></View><Text style={[styles.hoursVal, { color: trackerTheme.colors.accent3 }]}>6/8h</Text></View>
+          {sortedTasks.length === 0 && <Text style={{ color: trackerTheme.colors.text3, fontSize: 12 }}>No tasks scheduled for this period.</Text>}
+          {sortedTasks.map(task => {
+            const progress = task[1].scheduled > 0 ? Math.min(100, (task[1].actual / task[1].scheduled) * 100) : 0;
+            return (
+              <View key={task[0]} style={styles.hoursRow}>
+                <Text style={styles.hoursLabel} numberOfLines={1}>{task[0]}</Text>
+                <View style={styles.hoursBar}>
+                  <View style={[styles.hoursFill, { width: `${progress}%`, backgroundColor: task[1].color }]} />
+                </View>
+                <Text style={[styles.hoursVal, { color: task[1].color }]}>{task[1].actual.toFixed(1)}/{task[1].scheduled.toFixed(1)}h</Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Task Breakdown Report */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Detailed Breakdown</Text>
+        <View style={styles.breakdownCard}>
+          <View style={styles.breakdownHeader}>
+            <Text style={[styles.breakdownHeaderText, { flex: 1 }]}>Task</Text>
+            <Text style={[styles.breakdownHeaderText, { width: 60, textAlign: 'right' }]}>Sched</Text>
+            <Text style={[styles.breakdownHeaderText, { width: 60, textAlign: 'right' }]}>Done</Text>
+          </View>
+          {sortedTasks.length === 0 && <Text style={{ color: trackerTheme.colors.text3, fontSize: 12, paddingVertical: 10 }}>No tasks data available.</Text>}
+          {sortedTasks.map((task, idx) => (
+            <View key={task[0]} style={[styles.breakdownRow, idx === sortedTasks.length - 1 && { borderBottomWidth: 0 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Text style={{ fontSize: 14 }}>{task[1].icon}</Text>
+                <Text style={styles.breakdownName} numberOfLines={1}>{task[0]}</Text>
+              </View>
+              <Text style={[styles.breakdownVal, { width: 60 }]}>{task[1].scheduled.toFixed(1)}h</Text>
+              <Text style={[styles.breakdownVal, { width: 60, color: task[1].color }]}>{task[1].actual.toFixed(1)}h</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Daily Task Breakdown Report */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Daily Breakdown Report</Text>
+        <View style={styles.dateStrip}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {reportDateStrip.map((d, i) => (
+              <TouchableOpacity 
+                key={i} 
+                style={[
+                  styles.dateCell, 
+                  d.isToday && styles.dateCellToday,
+                  reportDate === d.full && !d.isToday && styles.dateCellSel
+                ]}
+                onPress={() => setReportDate(d.full)}
+              >
+                <Text style={[styles.dateWd, d.isToday && styles.dateWdToday]}>{d.day}</Text>
+                <Text style={[styles.dateNum, d.isToday && styles.dateNumToday]}>{d.date}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        <View style={styles.breakdownCard}>
+          <View style={styles.breakdownHeader}>
+            <Text style={[styles.breakdownHeaderText, { flex: 1 }]}>Task</Text>
+            <Text style={[styles.breakdownHeaderText, { width: 60, textAlign: 'right' }]}>Sched</Text>
+            <Text style={[styles.breakdownHeaderText, { width: 60, textAlign: 'right' }]}>Done</Text>
+          </View>
+          {reportSortedTasks.length === 0 && <Text style={{ color: trackerTheme.colors.text3, fontSize: 12, paddingVertical: 10 }}>No tasks data available for this date.</Text>}
+          {reportSortedTasks.map((task, idx) => (
+            <View key={task[0]} style={[styles.breakdownRow, idx === reportSortedTasks.length - 1 && { borderBottomWidth: 0 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Text style={{ fontSize: 14 }}>{task[1].icon}</Text>
+                <Text style={styles.breakdownName} numberOfLines={1}>{task[0]}</Text>
+              </View>
+              <Text style={[styles.breakdownVal, { width: 60 }]}>{task[1].scheduled.toFixed(1)}h</Text>
+              <Text style={[styles.breakdownVal, { width: 60, color: task[1].color }]}>{task[1].actual.toFixed(1)}h</Text>
+            </View>
+          ))}
         </View>
       </View>
     </ScrollView>
@@ -167,4 +399,18 @@ const styles = StyleSheet.create({
   hoursBar: { flex: 1, height: 6, backgroundColor: trackerTheme.colors.surface3, borderRadius: 3, overflow: 'hidden' },
   hoursFill: { height: '100%', borderRadius: 3 },
   hoursVal: { fontSize: 12, fontWeight: '600', width: 40, textAlign: 'right' },
+  breakdownCard: { backgroundColor: trackerTheme.colors.surface, borderRadius: trackerTheme.radius.lg, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: trackerTheme.colors.border },
+  breakdownHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: trackerTheme.colors.border, paddingVertical: 8, marginBottom: 4 },
+  breakdownHeaderText: { fontSize: 11, fontWeight: '600', color: trackerTheme.colors.text3, textTransform: 'uppercase' },
+  breakdownRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: trackerTheme.colors.border },
+  breakdownName: { fontSize: 14, fontWeight: '500', color: trackerTheme.colors.text },
+  breakdownVal: { fontSize: 14, fontWeight: '600', textAlign: 'right', color: trackerTheme.colors.text2 },
+  dateStrip: { paddingBottom: 12, paddingTop: 4 },
+  dateCell: { width: 44, height: 56, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: trackerTheme.colors.border, backgroundColor: trackerTheme.colors.surface },
+  dateCellToday: { backgroundColor: trackerTheme.colors.accent, borderColor: trackerTheme.colors.accent },
+  dateCellSel: { borderColor: trackerTheme.colors.accent, backgroundColor: 'rgba(124,109,237,.15)' },
+  dateWd: { fontSize: 10, color: trackerTheme.colors.text3, fontWeight: '500' },
+  dateWdToday: { color: 'rgba(255,255,255,0.7)' },
+  dateNum: { fontSize: 15, fontWeight: '700', color: trackerTheme.colors.text },
+  dateNumToday: { color: 'white' },
 });

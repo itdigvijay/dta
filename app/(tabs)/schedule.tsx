@@ -20,7 +20,7 @@ function calcDur(start: string, end: string) {
 
 export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
-  const { tasks, templates, dateMap, blockStatus, addTemplate, deleteTemplate, assignTemplate, cycleBlockStatus } = useTrackerContext();
+  const { tasks, schedule, templates, addTemplate, deleteTemplate, assignTemplate, cycleBlockStatus } = useTrackerContext();
   
   const [activeTab, setActiveTab] = useState<'templates' | 'calendar'>('templates');
   
@@ -37,21 +37,21 @@ export default function ScheduleScreen() {
   // Block Builder State
   const [blkStart, setBlkStart] = useState('08:00');
   const [blkEnd, setBlkEnd] = useState('09:00');
-  const [blkTaskId, setBlkTaskId] = useState<number | null>(null);
+  const [blkTaskName, setBlkTaskName] = useState<string | null>(null);
   const [blkSub, setBlkSub] = useState<string>('');
   const [taskDropdownOpen, setTaskDropdownOpen] = useState(false);
   const [subDropdownOpen, setSubDropdownOpen] = useState(false);
 
   useEffect(() => {
-    const activeT = tasks.find(t => t.id === blkTaskId);
+    const activeT = tasks.find(t => t.name === blkTaskName);
     if (activeT && activeT.subtasks.length > 0 && !activeT.subtasks.includes(blkSub)) {
       setBlkSub(activeT.subtasks[0]);
     }
-  }, [blkTaskId]);
+  }, [blkTaskName]);
 
   const handleAddBlock = () => {
-    if (!blkTaskId) return;
-    setTplBlocks([...tplBlocks, { start: blkStart, end: blkEnd, taskId: blkTaskId, sub: blkSub }]);
+    if (!blkTaskName) return;
+    setTplBlocks([...tplBlocks, { start: blkStart, end: blkEnd, taskName: blkTaskName, sub: blkSub }]);
   };
 
   const handleSaveTpl = () => {
@@ -70,8 +70,9 @@ export default function ScheduleScreen() {
     return { day: daysArr[d.getDay()], date: d.getDate(), full, isToday: i === 3 };
   });
 
-  const assignedId = dateMap[selectedDate];
-  const activeTaskForBlock = tasks.find(t => t.id === blkTaskId);
+  const activeTaskForBlock = tasks.find(t => t.name === blkTaskName);
+  const daySchedule = schedule[selectedDate];
+  const isRestSelected = daySchedule && daySchedule.length === 0;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -112,7 +113,7 @@ export default function ScheduleScreen() {
                 </View>
                 <View style={styles.tplBlocks}>
                   {tpl.blocks.map((b, i) => {
-                    const t = tasks.find(t => t.id === b.taskId);
+                    const t = tasks.find(t => t.name === b.taskName);
                     if (!t) return null;
                     return (
                       <View key={i} style={[styles.tplBlk, { backgroundColor: t.color + '22' }]}>
@@ -133,8 +134,9 @@ export default function ScheduleScreen() {
           <View style={styles.dateStrip}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}>
               {dateStrip.map((d, i) => {
-                const isRest = dateMap[d.full] === 'rest';
-                const hasTpl = dateMap[d.full] && dateMap[d.full] !== 'rest';
+                const daySched = schedule[d.full];
+                const isRest = daySched && daySched.length === 0;
+                const hasTpl = daySched && daySched.length > 0;
                 return (
                   <TouchableOpacity key={i} style={[
                     styles.dateCell,
@@ -156,21 +158,21 @@ export default function ScheduleScreen() {
             <Text style={styles.sectionTitle}>Assign template</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assignRow}>
               {templates.map(tpl => (
-                <TouchableOpacity key={tpl.id} style={[styles.assignChip, assignedId === tpl.id && styles.assignChipSel, assignedId === tpl.id && { borderColor: trackerTheme.colors.accent }]} onPress={() => assignTemplate(selectedDate, tpl.id)}>
-                  <Text style={[styles.assignChipText, assignedId === tpl.id && { color: trackerTheme.colors.accent }]}>{tpl.name}</Text>
+                <TouchableOpacity key={tpl.id} style={styles.assignChip} onPress={() => assignTemplate(selectedDate, tpl.id)}>
+                  <Text style={styles.assignChipText}>{tpl.name}</Text>
                 </TouchableOpacity>
               ))}
-              <TouchableOpacity style={[styles.assignChip, assignedId === 'rest' && styles.assignChipRest]} onPress={() => assignTemplate(selectedDate, 'rest')}>
-                <Text style={[styles.assignChipText, assignedId === 'rest' && { color: trackerTheme.colors.accent3 }]}>🛌 Rest Day</Text>
+              <TouchableOpacity style={[styles.assignChip, isRestSelected && styles.assignChipRest]} onPress={() => assignTemplate(selectedDate, 'rest')}>
+                <Text style={[styles.assignChipText, isRestSelected && { color: trackerTheme.colors.accent3 }]}>🛌 Rest Day</Text>
               </TouchableOpacity>
-              {assignedId && (
+              {daySchedule !== undefined && (
                 <TouchableOpacity style={[styles.assignChip, { borderColor: 'transparent', backgroundColor: 'transparent' }]} onPress={() => assignTemplate(selectedDate, '')}>
                   <Text style={[styles.assignChipText, { color: trackerTheme.colors.accent3 }]}>✕ Clear</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
 
-            {assignedId === 'rest' ? (
+            {isRestSelected ? (
               <View style={styles.restBanner}>
                 <Text style={{ fontSize: 40 }}>🛌</Text>
                 <Text style={styles.restTitle}>Rest Day</Text>
@@ -179,7 +181,7 @@ export default function ScheduleScreen() {
                   <Text style={{ color: trackerTheme.colors.accent3, fontSize: 13, fontWeight: '600' }}>Remove rest day</Text>
                 </TouchableOpacity>
               </View>
-            ) : !assignedId ? (
+            ) : !daySchedule ? (
               <View style={{ alignItems: 'center', padding: 30 }}>
                 <Text style={{ fontSize: 30, marginBottom: 8 }}>📅</Text>
                 <Text style={{ fontSize: 14, fontWeight: '600', color: trackerTheme.colors.text, marginBottom: 6 }}>No template assigned</Text>
@@ -188,38 +190,35 @@ export default function ScheduleScreen() {
             ) : (
               <View>
                 {(() => {
-                  const tpl = templates.find(t => t.id === assignedId);
-                  if (!tpl) return null;
+                  if (daySchedule.length === 0) return null;
                   return (
                     <>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, padding: 10, backgroundColor: tpl.color + '18', borderRadius: trackerTheme.radius.sm, borderWidth: 1, borderColor: tpl.color + '44' }}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tpl.color }} />
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: tpl.color }}>{tpl.name}</Text>
-                        <Text style={{ fontSize: 11, color: trackerTheme.colors.text2, marginLeft: 'auto' }}>{tpl.blocks.length} blocks</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, padding: 10, backgroundColor: trackerTheme.colors.surface2, borderRadius: trackerTheme.radius.sm, borderWidth: 1, borderColor: trackerTheme.colors.border }}>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: trackerTheme.colors.text }}>Scheduled Tasks</Text>
+                        <Text style={{ fontSize: 11, color: trackerTheme.colors.text2, marginLeft: 'auto' }}>{daySchedule.length} blocks</Text>
                       </View>
-                      {tpl.blocks.map((b, i) => {
-                        const t = tasks.find(t => t.id === b.taskId);
+                      {daySchedule.map((item, i) => {
+                        const t = tasks.find(t => t.name === item.taskName);
                         if (!t) return null;
-                        const bStatus = blockStatus[selectedDate]?.[i] || 'pending';
-                        const sc = bStatus === 'completed' ? { color: trackerTheme.colors.accent2, bg: 'rgba(91,196,160,.12)', lbl: 'Completed' }
-                          : bStatus === 'in-progress' ? { color: trackerTheme.colors.accent4, bg: 'rgba(240,168,62,.12)', lbl: 'Active' }
+                        const sc = item.status === 'completed' ? { color: trackerTheme.colors.accent2, bg: 'rgba(91,196,160,.12)', lbl: 'Completed' }
+                          : item.status === 'in-progress' ? { color: trackerTheme.colors.accent4, bg: 'rgba(240,168,62,.12)', lbl: 'Active' }
                             : { color: trackerTheme.colors.text3, bg: 'transparent', lbl: 'Pending' };
-                        const dur = calcDur(b.start, b.end);
+                        const dur = calcDur(item.start, item.end);
 
                         return (
                           <View key={i} style={styles.schedItem}>
                             <View style={styles.timeCol}>
-                              <Text style={styles.tRange}>{b.start}</Text>
-                              <Text style={styles.tRange}>{b.end}</Text>
+                              <Text style={styles.tRange}>{item.start}</Text>
+                              <Text style={styles.tRange}>{item.end}</Text>
                               <Text style={styles.tDur}>{dur}</Text>
                             </View>
                             <View style={[styles.schedCard, { borderLeftColor: t.color }]}>
                               <View style={styles.scardTop}>
                                 <View>
                                   <Text style={styles.scardName}>{t.icon} {t.name}</Text>
-                                  <Text style={styles.scardSub}>{b.sub}</Text>
+                                  <Text style={styles.scardSub}>{item.subtask}</Text>
                                 </View>
-                                <TouchableOpacity style={[styles.spill, { borderColor: sc.color, backgroundColor: sc.bg }]} onPress={() => cycleBlockStatus(selectedDate, i)}>
+                                <TouchableOpacity style={[styles.spill, { borderColor: sc.color, backgroundColor: sc.bg }]} onPress={() => cycleBlockStatus(selectedDate, item.id)}>
                                   <Text style={{ color: sc.color, fontSize: 10, fontWeight: '600' }}>{sc.lbl}</Text>
                                 </TouchableOpacity>
                               </View>
@@ -259,11 +258,11 @@ export default function ScheduleScreen() {
             {tplBlocks.length > 0 && (
               <View style={{ marginBottom: 12 }}>
                 {tplBlocks.map((b, i) => {
-                  const t = tasks.find(x => x.id === b.taskId);
+                  const t = tasks.find(x => x.name === b.taskName);
                   return (
                     <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: trackerTheme.colors.surface2, padding: 8, borderRadius: trackerTheme.radius.sm, marginBottom: 4 }}>
                       <Text style={{ flex: 1, color: trackerTheme.colors.text2, fontSize: 12 }}>
-                        {b.start} - {b.end} • {t?.icon} {b.sub}
+                        {b.start} - {b.end} • {t?.icon} {t?.name} {b.sub ? `(${b.sub})` : ''}
                       </Text>
                       <TouchableOpacity onPress={() => {
                         const newB = [...tplBlocks];
@@ -304,7 +303,7 @@ export default function ScheduleScreen() {
               {taskDropdownOpen && (
                 <View style={styles.dropdownList}>
                   {tasks.map(t => (
-                    <TouchableOpacity key={t.id} style={styles.dropdownItem} onPress={() => { setBlkTaskId(t.id); setTaskDropdownOpen(false); }}>
+                      <TouchableOpacity key={t.id} style={styles.dropdownItem} onPress={() => { setBlkTaskName(t.name); setTaskDropdownOpen(false); }}>
                       <Text style={{ color: t.color, fontSize: 14 }}>{t.icon} {t.name}</Text>
                     </TouchableOpacity>
                   ))}

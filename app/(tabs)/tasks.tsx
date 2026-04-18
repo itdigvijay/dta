@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TasksScreen() {
   const insets = useSafeAreaInsets();
-  const { tasks, statusUpdates, addTask, addSubtask, removeSubtask, removeTask, updateTaskName } = useTrackerContext();
+  const { tasks, statusUpdates, schedule, addTask, addSubtask, removeSubtask, removeTask, updateTaskName } = useTrackerContext();
   const [modalVisible, setModalVisible] = useState(false);
   const [taskModalVisible, setTaskModalVisible] = useState<number | null>(null);
 
@@ -23,6 +23,10 @@ export default function TasksScreen() {
 
   const handleAddTask = () => {
     if (!newTaskName.trim()) return;
+    if (tasks.some(t => t.name.toLowerCase() === newTaskName.trim().toLowerCase())) {
+      return;
+    }
+
     const subs = newTaskSubs.split(',').map(s => s.trim()).filter(Boolean);
     addTask({
       name: newTaskName,
@@ -57,9 +61,32 @@ export default function TasksScreen() {
       <ScrollView contentContainerStyle={styles.section}>
         <Text style={styles.sectionTitle}>Active Categories</Text>
         {tasks.map(task => {
-          const taskUpdates = Object.entries(statusUpdates).filter(([k]) => k === String(task.id) || k.startsWith(`${task.id}_`));
           let actual = 0, sched = 0;
-          taskUpdates.forEach(([_, u]) => { actual += u.actual; sched += u.scheduled; });
+
+          Object.values(schedule).forEach(daySched => {
+            if (daySched) {
+              daySched.forEach(item => {
+                if (item.taskName === task.name) {
+                  const [sh, sm] = item.start.split(':').map(Number);
+                  let [eh, em] = item.end.split(':').map(Number);
+                  if (eh < sh) eh += 24;
+                  sched += (eh * 60 + (em || 0) - (sh * 60 + (sm || 0))) / 60;
+                }
+              });
+            }
+          });
+
+          Object.values(statusUpdates).forEach(dateData => {
+            const taskData = dateData[task.name];
+            if (taskData) {
+              actual += taskData.actual || 0;
+              if (taskData.subtasks) {
+                Object.values(taskData.subtasks).forEach(subU => {
+                  actual += subU.actual || 0;
+                });
+              }
+            }
+          });
           const progress = sched > 0 ? Math.round((actual / sched) * 100) : 0;
           
           return (
@@ -91,9 +118,9 @@ export default function TasksScreen() {
                   </View>
                 )}
               </View>
-              <View style={styles.progressBar}>
+              {/* <View style={styles.progressBar}>
                 <View style={[styles.progressFill, { width: `${progress}%`, backgroundColor: task.color }]} />
-              </View>
+              </View> */}
             </TouchableOpacity>
           );
         })}

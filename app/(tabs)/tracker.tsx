@@ -4,10 +4,10 @@ import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function calcScheduledHours(blocks: {start: string, end: string, taskId: number, sub?: string}[], taskId: number, sub?: string) {
+function calcScheduledHours(blocks: {start: string, end: string, taskName: string, sub?: string}[], taskName: string, sub?: string) {
   let total = 0;
   blocks.forEach(b => {
-    if (b.taskId === taskId && b.sub === sub) {
+    if (b.taskName === taskName && b.sub === sub) {
       const [sh, sm] = b.start.split(':').map(Number);
       let [eh, em] = b.end.split(':').map(Number);
       if (eh < sh) eh += 24;
@@ -19,7 +19,7 @@ function calcScheduledHours(blocks: {start: string, end: string, taskId: number,
 
 export default function UpdateScreen() {
   const insets = useSafeAreaInsets();
-  const { tasks, statusUpdates, updateStatus, updateStatusHours, dateMap, templates } = useTrackerContext();
+  const { tasks, schedule, statusUpdates, updateStatus, updateStatusHours } = useTrackerContext();
 
   const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const today = new Date();
@@ -33,16 +33,17 @@ export default function UpdateScreen() {
     return { day: days[d.getDay()], date: d.getDate(), full, isToday: i === 3 };
   });
 
-  const assignedTemplateId = dateMap[selectedDate];
-  const assignedTemplate = templates.find(t => t.id === assignedTemplateId);
+  const daySchedule = schedule[selectedDate];
+  const isRest = daySchedule && daySchedule.length === 0;
+  const isUnassigned = !daySchedule;
 
-  const scheduledItems: { task: any, taskId: number, sub: string }[] = [];
-  if (assignedTemplate) {
-    assignedTemplate.blocks.forEach(b => {
-      const t = tasks.find(x => x.id === b.taskId);
+  const scheduledItems: { task: any, taskName: string, sub: string }[] = [];
+  if (daySchedule) {
+    daySchedule.forEach(item => {
+      const t = tasks.find(x => x.name === item.taskName);
       if (t) {
-        if (!scheduledItems.some(i => i.taskId === b.taskId && i.sub === b.sub)) {
-          scheduledItems.push({ task: t, taskId: b.taskId, sub: b.sub });
+        if (!scheduledItems.some(i => i.taskName === item.taskName && i.sub === item.subtask)) {
+          scheduledItems.push({ task: t, taskName: item.taskName, sub: item.subtask });
         }
       }
     });
@@ -80,15 +81,15 @@ export default function UpdateScreen() {
 
       <ScrollView contentContainerStyle={styles.section}>
         <Text style={styles.sectionTitle}>
-          {assignedTemplateId === 'rest' ? 'Rest Day' : selectedDate === todayStr ? "Today's Tasks" : "Scheduled Tasks"}
+          {isRest ? 'Rest Day' : selectedDate === todayStr ? "Today's Tasks" : "Scheduled Tasks"}
         </Text>
         
-        {assignedTemplateId === 'rest' ? (
+        {isRest ? (
           <View style={{ padding: 30, alignItems: 'center' }}>
             <Text style={{ fontSize: 30, marginBottom: 10 }}>🛌</Text>
             <Text style={{ color: trackerTheme.colors.text2 }}>Rest day. No tasks scheduled.</Text>
           </View>
-        ) : !assignedTemplateId ? (
+        ) : isUnassigned ? (
           <View style={{ padding: 30, alignItems: 'center' }}>
             <Text style={{ fontSize: 30, marginBottom: 10 }}>📅</Text>
             <Text style={{ color: trackerTheme.colors.text2 }}>No template assigned for this date.</Text>
@@ -99,69 +100,64 @@ export default function UpdateScreen() {
           </View>
         ) : (
           scheduledItems.map(item => {
-            const updateId = item.sub ? `${item.taskId}_${item.sub}` : String(item.taskId);
-            const calculatedScheduled = assignedTemplate ? calcScheduledHours(assignedTemplate.blocks, item.taskId, item.sub) : 0;
-            const displayScheduled = calculatedScheduled > 0 ? calculatedScheduled : (statusUpdates[updateId]?.scheduled || 3);
-            const su = statusUpdates[updateId] || { actual: 0, scheduled: displayScheduled, status: 'pending' };
-            const pct = Math.min(100, Math.round((su.actual / displayScheduled) * 100)) || 0;
+            const itemKey = item.sub ? `${item.taskName}_${item.sub}` : item.taskName;
+            const displayScheduled = calcScheduledHours(daySchedule.map(s => ({ start: s.start, end: s.end, taskName: s.taskName, sub: s.subtask })), item.taskName, item.sub);
             
+            const taskData = statusUpdates[selectedDate]?.[item.taskName];
+            let su;
+            if (item.sub) {
+              su = taskData?.subtasks?.[item.sub] || { actual: 0, scheduled: displayScheduled, status: 'pending' };
+            } else {
+              su = taskData || { actual: 0, scheduled: displayScheduled, status: 'pending' };
+            }
+
             return (
-            <View key={updateId} style={styles.statusUpdateCard}>
-              <View style={styles.statusHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 10 }}>
-                  <Text style={{ fontSize: 20 }}>{item.task.icon}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.statusName}>{item.task.name}</Text>
-                    {item.sub ? (
-                      <Text style={{ fontSize: 12, color: trackerTheme.colors.text2, marginTop: 2 }}>{item.sub}</Text>
-                    ) : null}
+              <View key={itemKey} style={styles.statusUpdateCard}>
+                <View style={styles.statusHeader}>
+                  <View>
+                    <Text style={styles.statusName}>{item.task.icon} {item.task.name}</Text>
+                    {item.sub ? <Text style={{ fontSize: 13, color: trackerTheme.colors.text2, marginTop: 2 }}>{item.sub}</Text> : null}
+                  </View>
+                  <View style={styles.statusToggle}>
+                    {statusLabels.map(s => {
+                      const isActive = su.status === s;
+                      let bgColor = 'transparent', borderColor = trackerTheme.colors.border, textColor = trackerTheme.colors.text3;
+                      if (isActive) {
+                        if (s === 'completed') { bgColor = 'rgba(91,196,160,.15)'; borderColor = trackerTheme.colors.accent2; textColor = trackerTheme.colors.accent2; }
+                        else if (s === 'partial') { bgColor = 'rgba(240,168,62,.15)'; borderColor = trackerTheme.colors.accent4; textColor = trackerTheme.colors.accent4; }
+                        else { bgColor = trackerTheme.colors.surface3; borderColor = trackerTheme.colors.text3; textColor = trackerTheme.colors.text; }
+                      }
+                      return (
+                        <TouchableOpacity key={s} onPress={() => updateStatus(selectedDate, item.taskName, item.sub, s, displayScheduled)} style={[styles.statusPill, { backgroundColor: bgColor, borderColor }]}>
+                          <Text style={{ fontSize: 11, fontWeight: '600', color: textColor }}>{s}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </View>
-                <View style={styles.statusToggle}>
-                  {statusLabels.map(s => {
-                    const isSelected = su.status === s;
-                    let bgColor = 'transparent';
-                    let borderColor = trackerTheme.colors.border;
-                    let textColor = trackerTheme.colors.text2;
-                    if (isSelected) {
-                      if (s === 'completed') { bgColor = 'rgba(91,196,160,0.15)'; borderColor = trackerTheme.colors.accent2; textColor = trackerTheme.colors.accent2; }
-                      else if (s === 'partial') { bgColor = 'rgba(240,168,62,0.15)'; borderColor = trackerTheme.colors.accent4; textColor = trackerTheme.colors.accent4; }
-                      else { bgColor = trackerTheme.colors.surface3; borderColor = trackerTheme.colors.text3; textColor = trackerTheme.colors.text; }
-                    }
-                    return (
-                      <TouchableOpacity key={s} onPress={() => updateStatus(updateId, s, displayScheduled)} style={[styles.statusPill, { backgroundColor: bgColor, borderColor }]}>
-                        <Text style={{ fontSize: 11, fontWeight: '600', color: textColor }}>{s}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+
+                <View style={styles.hoursRow}>
+                  <Text style={styles.hoursLabel}>Progress</Text>
+                  <View style={styles.hoursBar}>
+                    <View style={[styles.hoursFill, { width: `${Math.min(100, (su.actual / displayScheduled) * 100 || 0)}%`, backgroundColor: item.task.color }]} />
+                  </View>
+                  <Text style={styles.hoursVal}>{su.actual}/{displayScheduled}h</Text>
+                </View>
+
+                <View style={{ marginTop: 10 }}>
+                  <Text style={{ fontSize: 11, color: trackerTheme.colors.text3, marginBottom: 8 }}>Adjust actual hours</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(selectedDate, item.taskName, item.sub, Math.max(0, su.actual - 0.5), displayScheduled)}>
+                      <Text style={styles.adjustBtnText}>-</Text>
+                    </TouchableOpacity>
+                    <Text style={{ flex: 1, textAlign: 'center', color: trackerTheme.colors.text, fontSize: 16, fontWeight: '600' }}>{su.actual}h</Text>
+                    <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(selectedDate, item.taskName, item.sub, Math.min(displayScheduled, su.actual + 0.5), displayScheduled)}>
+                      <Text style={styles.adjustBtnText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-
-              <View style={styles.hoursRow}>
-                <Text style={styles.hoursLabel}>Completed</Text>
-                <View style={styles.hoursBar}><View style={[styles.hoursFill, { width: `${pct}%`, backgroundColor: item.task.color }]} /></View>
-                <Text style={[styles.hoursVal, { color: item.task.color }]}>{su.actual}h</Text>
-              </View>
-              <View style={styles.hoursRow}>
-                <Text style={styles.hoursLabel}>Scheduled</Text>
-                <View style={styles.hoursBar}><View style={[styles.hoursFill, { width: '100%', backgroundColor: trackerTheme.colors.surface3 }]} /></View>
-                <Text style={styles.hoursVal}>{displayScheduled}h</Text>
-              </View>
-
-              <View style={{ marginTop: 10 }}>
-                <Text style={{ fontSize: 11, color: trackerTheme.colors.text3, marginBottom: 8 }}>Adjust actual hours</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(updateId, Math.max(0, su.actual - 0.5), displayScheduled)}>
-                    <Text style={styles.adjustBtnText}>-</Text>
-                  </TouchableOpacity>
-                  <Text style={{ flex: 1, textAlign: 'center', color: trackerTheme.colors.text, fontSize: 16, fontWeight: '600' }}>{su.actual}h</Text>
-                  <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(updateId, Math.min(displayScheduled, su.actual + 0.5), displayScheduled)}>
-                    <Text style={styles.adjustBtnText}>+</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          );
+            );
         })
       )}
       </ScrollView>
