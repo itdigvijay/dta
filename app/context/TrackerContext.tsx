@@ -2,12 +2,12 @@ import * as SQLite from 'expo-sqlite';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
-export interface Task {
+export interface Category {
   id: number;
   name: string;
   color: string;
   icon: string;
-  subtasks: string[];
+  activities: string[];
   type: string;
 }
 
@@ -15,16 +15,16 @@ export interface ScheduleItem {
   id: number;
   start: string;
   end: string;
-  taskName: string;
-  subtask: string;
+  categoryName: string;
+  activity: string;
   status: 'pending' | 'in-progress' | 'completed';
 }
 
 export interface TemplateBlock {
   start: string;
   end: string;
-  taskName: string;
-  sub: string;
+  categoryName: string;
+  activity: string;
 }
 
 export interface Template {
@@ -68,37 +68,10 @@ interface TrackerContextType {
 }
 
 const initialState = {
-  tasks: [
-    // { id: 1, name: 'Sleep', color: '#5BC4A0', icon: '🌙', subtasks: [], type: 'sleep' },
-    // { id: 2, name: 'Learning', color: '#7C6DED', icon: '📚', subtasks: ['Mathematics', 'English', 'Science', 'History'], type: 'learn' },
-    // { id: 3, name: 'Exercise', color: '#F0A83E', icon: '🏋', subtasks: ['Cardio', 'Weight training', 'Yoga'], type: 'exercise' },
-    // { id: 4, name: 'Work', color: '#F06B6B', icon: '💼', subtasks: ['Meetings', 'Deep work', 'Emails'], type: 'work' }
-  ],
-  schedule: [
-    // { id: 1, start: '06:00', end: '08:00', taskId: 1, subtask: 'Deep sleep', status: 'completed' as const },
-    // { id: 2, start: '08:00', end: '10:00', taskId: 2, subtask: 'Mathematics', status: 'completed' as const },
-    // { id: 3, start: '10:00', end: '11:00', taskId: 3, subtask: 'Cardio', status: 'in-progress' as const },
-    // { id: 4, start: '11:00', end: '14:00', taskId: 4, subtask: 'Deep work', status: 'pending' as const },
-    // { id: 5, start: '15:00', end: '16:00', taskId: 2, subtask: 'English', status: 'pending' as const },
-    // { id: 6, start: '22:00', end: '06:00', taskId: 1, subtask: 'Night sleep', status: 'pending' as const }
-  ],
-  templates:[
-    // {id:'t1',name:'Weekday Routine',color:'#7C6DED',blocks:[
-    //   {start:'06:00',end:'08:00',taskId:'1',sub:'Night Sleep'},
-    //   {start:'08:00',end:'10:00',taskId:'2',sub:'Mathematics'},
-    //   {start:'10:00',end:'11:00',taskId:'3',sub:'Cardio'},
-    //   {start:'11:00',end:'14:00',taskId:'4',sub:'Deep Work'},
-    //   {start:'15:00',end:'16:00',taskId:'2',sub:'English'},
-    //   {start:'22:00',end:'06:00',taskId:'1',sub:'Night Sleep'}
-    // ]},
-    // {id:'t2',name:'Weekend Light',color:'#5BC4A0',blocks:[
-    //   {start:'07:00',end:'09:00',taskId:'1',sub:'Night Sleep'},
-    //   {start:'09:00',end:'10:00',taskId:'3',sub:'Yoga'},
-    //   {start:'11:00',end:'13:00',taskId:'2',sub:'English'},
-    //   {start:'23:00',end:'07:00',taskId:'1',sub:'Night Sleep'}
-    // ]}
-  ],
-  statusUpdates: {} as Record<string, Record<string, TaskStatus>>
+  categories: [] as Category[],
+  schedule: {} as Record<string, ScheduleItem[]>,
+  templates: [] as Template[],
+  statusUpdates: {} as Record<string, Record<string, CategoryStatus>>
 };
 
 
@@ -155,68 +128,103 @@ const saveState = (key: string, value: any) => {
 };
 
 export const TrackerProvider = ({ children }: { children: ReactNode }) => {
-  const [tasks, setTasks] = useState<Task[]>(() => loadState('tasks', initialState.tasks));
+  const [categories, setCategories] = useState<Category[]>(() => {
+    const loaded = loadState('categories', null);
+    if (loaded && Array.isArray(loaded)) return loaded;
+    // Fallback and migration for older 'tasks' key
+    const oldTasks = loadState('tasks', initialState.categories);
+    return (Array.isArray(oldTasks) ? oldTasks : []).map((t: any) => ({
+      ...t,
+      activities: t.activities || t.subtasks || []
+    }));
+  });
+  
   const [schedule, setSchedule] = useState<Record<string, ScheduleItem[]>>(() => {
     const loaded = loadState('schedule', initialState.schedule);
-    if (Array.isArray(loaded)) return {}; // Clear state if using old array structure
-    return loaded;
+    if (!loaded || Array.isArray(loaded)) return {}; // Clear state if using old array structure or null
+    const migrated: Record<string, ScheduleItem[]> = {};
+    Object.keys(loaded).forEach(date => {
+      migrated[date] = (Array.isArray(loaded[date]) ? loaded[date] : []).map((item: any) => ({
+        ...item,
+        categoryName: item.categoryName || item.taskName || '',
+        activity: item.activity || item.subtask || ''
+      }));
+    });
+    return migrated;
   });
+  
   const [templates, setTemplates] = useState<Template[]>(() => {
     const loaded = loadState('templates', initialState.templates);
-    return loaded.map((t: any) => ({
+    if (!Array.isArray(loaded)) return [];
+    return (loaded || []).map((t: any) => ({
       ...t,
-      blocks: (t.blocks || []).map((b: any) => {
-        let tName = b.taskName;
-        if (!tName && b.taskId) {
-           const found = tasks.find(x => x.id === Number(b.taskId));
-           tName = found ? found.name : String(b.taskId);
+      blocks: (Array.isArray(t.blocks) ? t.blocks : []).map((b: any) => {
+        let cName = b.categoryName || b.taskName;
+        if (!cName && b.taskId) {
+           const oldCats = loadState('categories', null) || loadState('tasks', []);
+           const found = (Array.isArray(oldCats) ? oldCats : []).find((x: any) => x.id === Number(b.taskId));
+           cName = found ? found.name : String(b.taskId);
         }
-        return { ...b, taskName: tName };
+        return { ...b, categoryName: cName, activity: b.activity || b.sub || b.subtask || '' };
       })
     }));
   });
+  
   const [blockStatus, setBlockStatus] = useState<Record<string, Record<number, string>>>(() => loadState('blockStatus', {}));
-  const [statusUpdates, setStatusUpdates] = useState<Record<string, Record<string, TaskStatus>>>(() => loadState('statusUpdates', initialState.statusUpdates));
+  const [statusUpdates, setStatusUpdates] = useState<Record<string, Record<string, CategoryStatus>>>(() => {
+    const loaded = loadState('statusUpdates', initialState.statusUpdates);
+    if (!loaded || typeof loaded !== 'object') return {};
+    const migrated: Record<string, Record<string, CategoryStatus>> = {};
+    Object.keys(loaded).forEach(date => {
+      migrated[date] = {};
+      Object.keys(loaded[date] || {}).forEach(catName => {
+        const catData = loaded[date][catName];
+        migrated[date][catName] = {
+          ...catData,
+          activities: catData.activities || catData.subtasks || {}
+        };
+      });
+    });
+    return migrated;
+  });
 
-  useEffect(() => { saveState('tasks', tasks); }, [tasks]);
+  useEffect(() => { saveState('categories', categories); }, [categories]);
   useEffect(() => { saveState('schedule', schedule); }, [schedule]);
   useEffect(() => { saveState('templates', templates); }, [templates]);
   useEffect(() => { saveState('blockStatus', blockStatus); }, [blockStatus]);
   useEffect(() => { saveState('statusUpdates', statusUpdates); }, [statusUpdates]);
 
-  const addTask = (task: Omit<Task, 'id'>) => {
-    if (tasks.some(t => t.name.toLowerCase() === task.name.toLowerCase())) {
-      return;
-    }
+  const addCategory = (category: Omit<Category, 'id'>) => {
+    if (categories.some(t => t.name.toLowerCase() === category.name.toLowerCase())) return;
     const id = Date.now();
-    setTasks(prev => [...prev, { ...task, id }]);
+    setCategories(prev => [...prev, { ...category, id }]);
   };
 
-  const addSubtask = (taskId: number, subtask: string) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: [...t.subtasks, subtask] } : t));
+  const addActivity = (categoryId: number, activity: string) => {
+    setCategories(prev => prev.map(t => t.id === categoryId ? { ...t, activities: [...t.activities, activity] } : t));
   };
 
-  const removeSubtask = (taskId: number, subtaskIndex: number) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        const newSubs = [...t.subtasks];
-        newSubs.splice(subtaskIndex, 1);
-        return { ...t, subtasks: newSubs };
+  const removeActivity = (categoryId: number, activityIndex: number) => {
+    setCategories(prev => prev.map(t => {
+      if (t.id === categoryId) {
+        const newSubs = [...t.activities];
+        newSubs.splice(activityIndex, 1);
+        return { ...t, activities: newSubs };
       }
       return t;
     }));
   };
 
-  const removeTask = (taskId: number) => {
-    const taskToRemove = tasks.find(t => t.id === taskId);
-    if (!taskToRemove) return;
-    const taskName = taskToRemove.name;
+  const removeCategory = (categoryId: number) => {
+    const catToRemove = categories.find(t => t.id === categoryId);
+    if (!catToRemove) return;
+    const catName = catToRemove.name;
 
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+    setCategories(prev => prev.filter(t => t.id !== categoryId));
     setSchedule(prev => {
       const next = { ...prev };
       Object.keys(next).forEach(date => {
-        next[date] = next[date].filter(s => s.taskName !== taskName);
+        next[date] = next[date].filter(s => s.categoryName !== catName);
       });
       return next;
     });
@@ -224,8 +232,8 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
       const next = { ...prev };
       Object.keys(next).forEach(date => {
         const dateUpdates = { ...next[date] };
-        if (dateUpdates[taskName]) {
-          delete dateUpdates[taskName];
+        if (dateUpdates[catName]) {
+          delete dateUpdates[catName];
           next[date] = dateUpdates;
         }
       });
@@ -233,20 +241,18 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
-  const updateTaskName = (taskId: number, newName: string) => {
-    if (tasks.some(t => t.id !== taskId && t.name.toLowerCase() === newName.toLowerCase())) {
-      return;
-    }
-    const taskToUpdate = tasks.find(t => t.id === taskId);
-    if (!taskToUpdate) return;
-    const oldName = taskToUpdate.name;
+  const updateCategoryName = (categoryId: number, newName: string) => {
+    if (categories.some(t => t.id !== categoryId && t.name.toLowerCase() === newName.toLowerCase())) return;
+    const catToUpdate = categories.find(t => t.id === categoryId);
+    if (!catToUpdate) return;
+    const oldName = catToUpdate.name;
 
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, name: newName } : t));
+    setCategories(prev => prev.map(t => t.id === categoryId ? { ...t, name: newName } : t));
 
     setSchedule(prev => {
       const next = { ...prev };
       Object.keys(next).forEach(date => {
-        next[date] = next[date].map(s => s.taskName === oldName ? { ...s, taskName: newName } : s);
+        next[date] = next[date].map(s => s.categoryName === oldName ? { ...s, categoryName: newName } : s);
       });
       return next;
     });
@@ -301,8 +307,8 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
         id: Date.now() + idx,
         start: b.start,
         end: b.end,
-        taskName: b.taskName,
-        subtask: b.sub,
+        categoryName: b.categoryName,
+        activity: b.activity,
         status: 'pending'
       }));
       next[date] = newItems.sort((a, b) => a.start.localeCompare(b.start));
@@ -328,13 +334,13 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
-  const updateStatus = (date: string, taskName: string, subtask: string | undefined, status: 'pending' | 'partial' | 'completed', scheduledOverride?: number) => {
+  const updateStatus = (date: string, categoryName: string, activity: string | undefined, status: 'pending' | 'partial' | 'completed', scheduledOverride?: number) => {
     setStatusUpdates(prev => {
       const dateData = prev[date] || {};
-      const taskData = dateData[taskName] || { actual: 0, scheduled: 3, status: 'pending', subtasks: {} };
+      const catData = dateData[categoryName] || { actual: 0, scheduled: 3, status: 'pending', activities: {} };
       
-      if (subtask) {
-        const currentSub = taskData.subtasks?.[subtask] || { actual: 0, scheduled: 3, status: 'pending' };
+      if (activity) {
+        const currentSub = catData.activities?.[activity] || { actual: 0, scheduled: 3, status: 'pending' };
         const sched = scheduledOverride ?? currentSub.scheduled;
         const nextSub = { ...currentSub, scheduled: sched, status };
         if (status === 'completed') nextSub.actual = sched;
@@ -342,47 +348,47 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
           ...prev,
           [date]: {
             ...dateData,
-            [taskName]: {
-              ...taskData,
-              subtasks: { ...(taskData.subtasks || {}), [subtask]: nextSub }
+            [categoryName]: {
+              ...catData,
+              activities: { ...(catData.activities || {}), [activity]: nextSub }
             }
           }
         };
       } else {
-        const sched = scheduledOverride ?? taskData.scheduled;
-        const nextTask = { ...taskData, scheduled: sched, status };
-        if (status === 'completed') nextTask.actual = sched;
-        return { ...prev, [date]: { ...dateData, [taskName]: nextTask } };
+        const sched = scheduledOverride ?? catData.scheduled;
+        const nextCat = { ...catData, scheduled: sched, status };
+        if (status === 'completed') nextCat.actual = sched;
+        return { ...prev, [date]: { ...dateData, [categoryName]: nextCat } };
       }
     });
   };
 
-  const updateStatusHours = (date: string, taskName: string, subtask: string | undefined, hours: number, scheduledOverride?: number) => {
+  const updateStatusHours = (date: string, categoryName: string, activity: string | undefined, hours: number, scheduledOverride?: number) => {
     setStatusUpdates(prev => {
       const dateData = prev[date] || {};
-      const taskData = dateData[taskName] || { actual: 0, scheduled: 3, status: 'pending', subtasks: {} };
+      const catData = dateData[categoryName] || { actual: 0, scheduled: 3, status: 'pending', activities: {} };
       
-      if (subtask) {
-        const currentSub = taskData.subtasks?.[subtask] || { actual: 0, scheduled: scheduledOverride ?? 3, status: 'pending' };
+      if (activity) {
+        const currentSub = catData.activities?.[activity] || { actual: 0, scheduled: scheduledOverride ?? 3, status: 'pending' };
         const sched = scheduledOverride ?? currentSub.scheduled;
         const nextStatus = hours >= sched ? 'completed' : hours > 0 ? 'partial' : 'pending';
         return {
           ...prev,
-          [date]: { ...dateData, [taskName]: { ...taskData, subtasks: { ...(taskData.subtasks || {}), [subtask]: { ...currentSub, actual: hours, scheduled: sched, status: nextStatus } } } }
+          [date]: { ...dateData, [categoryName]: { ...catData, activities: { ...(catData.activities || {}), [activity]: { ...currentSub, actual: hours, scheduled: sched, status: nextStatus } } } }
         };
       } else {
-        const sched = scheduledOverride ?? taskData.scheduled;
+        const sched = scheduledOverride ?? catData.scheduled;
         const nextStatus = hours >= sched ? 'completed' : hours > 0 ? 'partial' : 'pending';
-        return { ...prev, [date]: { ...dateData, [taskName]: { ...taskData, actual: hours, scheduled: sched, status: nextStatus } } };
+        return { ...prev, [date]: { ...dateData, [categoryName]: { ...catData, actual: hours, scheduled: sched, status: nextStatus } } };
       }
     });
   };
 
   return (
     <TrackerContext.Provider value={{
-      tasks, schedule, templates, blockStatus, statusUpdates,
-      addTask, addSubtask, removeSubtask,
-      removeTask, updateTaskName,
+      categories, schedule, templates, blockStatus, statusUpdates,
+      addCategory, addActivity, removeActivity,
+      removeCategory, updateCategoryName,
       addSchedule, addTemplate, deleteTemplate, assignTemplate,
       cycleBlockStatus,
       updateStatus, updateStatusHours

@@ -20,7 +20,7 @@ function calcDur(start: string, end: string) {
 
 export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
-  const { tasks, schedule, templates, addTemplate, deleteTemplate, assignTemplate, cycleBlockStatus } = useTrackerContext();
+  const { categories, schedule, templates, addTemplate, deleteTemplate, assignTemplate, cycleBlockStatus } = useTrackerContext();
   
   const [activeTab, setActiveTab] = useState<'templates' | 'calendar'>('templates');
   
@@ -37,21 +37,21 @@ export default function ScheduleScreen() {
   // Block Builder State
   const [blkStart, setBlkStart] = useState('08:00');
   const [blkEnd, setBlkEnd] = useState('09:00');
-  const [blkTaskName, setBlkTaskName] = useState<string | null>(null);
-  const [blkSub, setBlkSub] = useState<string>('');
-  const [taskDropdownOpen, setTaskDropdownOpen] = useState(false);
-  const [subDropdownOpen, setSubDropdownOpen] = useState(false);
+  const [blkCategoryName, setBlkCategoryName] = useState<string | null>(null);
+  const [blkActivity, setBlkActivity] = useState<string>('');
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+  const [activityDropdownOpen, setActivityDropdownOpen] = useState(false);
 
   useEffect(() => {
-    const activeT = tasks.find(t => t.name === blkTaskName);
-    if (activeT && activeT.subtasks.length > 0 && !activeT.subtasks.includes(blkSub)) {
-      setBlkSub(activeT.subtasks[0]);
+    const activeT = categories.find(t => t.name === blkCategoryName);
+    if (activeT && activeT.activities.length > 0 && !activeT.activities.includes(blkActivity)) {
+      setBlkActivity(activeT.activities[0]);
     }
-  }, [blkTaskName]);
+  }, [blkCategoryName]);
 
   const handleAddBlock = () => {
-    if (!blkTaskName) return;
-    setTplBlocks([...tplBlocks, { start: blkStart, end: blkEnd, taskName: blkTaskName, sub: blkSub }]);
+    if (!blkCategoryName) return;
+    setTplBlocks([...tplBlocks, { start: blkStart, end: blkEnd, categoryName: blkCategoryName, activity: blkActivity }]);
   };
 
   const handleSaveTpl = () => {
@@ -70,7 +70,7 @@ export default function ScheduleScreen() {
     return { day: daysArr[d.getDay()], date: d.getDate(), full, isToday: i === 3 };
   });
 
-  const activeTaskForBlock = tasks.find(t => t.name === blkTaskName);
+  const activeCategoryForBlock = categories.find(t => t.name === blkCategoryName);
   const daySchedule = schedule[selectedDate];
   const isRestSelected = daySchedule && daySchedule.length === 0;
 
@@ -113,7 +113,7 @@ export default function ScheduleScreen() {
                 </View>
                 <View style={styles.tplBlocks}>
                   {tpl.blocks.map((b, i) => {
-                    const t = tasks.find(t => t.name === b.taskName);
+                    const t = categories.find(t => t.name === b.categoryName);
                     if (!t) return null;
                     return (
                       <View key={i} style={[styles.tplBlk, { backgroundColor: t.color + '22' }]}>
@@ -194,11 +194,11 @@ export default function ScheduleScreen() {
                   return (
                     <>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, padding: 10, backgroundColor: trackerTheme.colors.surface2, borderRadius: trackerTheme.radius.sm, borderWidth: 1, borderColor: trackerTheme.colors.border }}>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: trackerTheme.colors.text }}>Scheduled Tasks</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: trackerTheme.colors.text }}>Scheduled Categories</Text>
                         <Text style={{ fontSize: 11, color: trackerTheme.colors.text2, marginLeft: 'auto' }}>{daySchedule.length} blocks</Text>
                       </View>
                       {daySchedule.map((item, i) => {
-                        const t = tasks.find(t => t.name === item.taskName);
+                        const t = categories.find(t => t.name === item.categoryName);
                         if (!t) return null;
                         const sc = item.status === 'completed' ? { color: trackerTheme.colors.accent2, bg: 'rgba(91,196,160,.12)', lbl: 'Completed' }
                           : item.status === 'in-progress' ? { color: trackerTheme.colors.accent4, bg: 'rgba(240,168,62,.12)', lbl: 'Active' }
@@ -216,7 +216,7 @@ export default function ScheduleScreen() {
                               <View style={styles.scardTop}>
                                 <View>
                                   <Text style={styles.scardName}>{t.icon} {t.name}</Text>
-                                  <Text style={styles.scardSub}>{item.subtask}</Text>
+                                  <Text style={styles.scardSub}>{item.activity}</Text>
                                 </View>
                                 <TouchableOpacity style={[styles.spill, { borderColor: sc.color, backgroundColor: sc.bg }]} onPress={() => cycleBlockStatus(selectedDate, item.id)}>
                                   <Text style={{ color: sc.color, fontSize: 10, fontWeight: '600' }}>{sc.lbl}</Text>
@@ -258,11 +258,11 @@ export default function ScheduleScreen() {
             {tplBlocks.length > 0 && (
               <View style={{ marginBottom: 12 }}>
                 {tplBlocks.map((b, i) => {
-                  const t = tasks.find(x => x.name === b.taskName);
+                  const t = categories.find(x => x.name === b.categoryName);
                   return (
                     <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: trackerTheme.colors.surface2, padding: 8, borderRadius: trackerTheme.radius.sm, marginBottom: 4 }}>
                       <Text style={{ flex: 1, color: trackerTheme.colors.text2, fontSize: 12 }}>
-                        {b.start} - {b.end} • {t?.icon} {t?.name} {b.sub ? `(${b.sub})` : ''}
+                        {b.start} - {b.end} • {t?.icon} {t?.name} {b.activity ? `(${b.activity})` : ''}
                       </Text>
                       <TouchableOpacity onPress={() => {
                         const newB = [...tplBlocks];
@@ -289,21 +289,21 @@ export default function ScheduleScreen() {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Task</Text>
+              <Text style={styles.inputLabel}>Category</Text>
               <TouchableOpacity 
                 style={[styles.inputField, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]} 
-                onPress={() => { setTaskDropdownOpen(!taskDropdownOpen); setBlkSub(''); setSubDropdownOpen(false); }}
+                onPress={() => { setCategoryDropdownOpen(!categoryDropdownOpen); setBlkActivity(''); setActivityDropdownOpen(false); }}
               >
-                <Text style={{ color: activeTaskForBlock ? activeTaskForBlock.color : trackerTheme.colors.text3 }}>
-                  {activeTaskForBlock ? `${activeTaskForBlock.icon} ${activeTaskForBlock.name}` : 'Select a task...'}
+                <Text style={{ color: activeCategoryForBlock ? activeCategoryForBlock.color : trackerTheme.colors.text3 }}>
+                  {activeCategoryForBlock ? `${activeCategoryForBlock.icon} ${activeCategoryForBlock.name}` : 'Select a category...'}
                 </Text>
                 <Text style={{ color: trackerTheme.colors.text3, fontSize: 10 }}>▼</Text>
               </TouchableOpacity>
               
-              {taskDropdownOpen && (
+              {categoryDropdownOpen && (
                 <View style={styles.dropdownList}>
-                  {tasks.map(t => (
-                      <TouchableOpacity key={t.id} style={styles.dropdownItem} onPress={() => { setBlkTaskName(t.name); setTaskDropdownOpen(false); }}>
+                  {categories.map(t => (
+                      <TouchableOpacity key={t.id} style={styles.dropdownItem} onPress={() => { setBlkCategoryName(t.name); setCategoryDropdownOpen(false); }}>
                       <Text style={{ color: t.color, fontSize: 14 }}>{t.icon} {t.name}</Text>
                     </TouchableOpacity>
                   ))}
@@ -311,21 +311,21 @@ export default function ScheduleScreen() {
               )}
             </View>
 
-            {activeTaskForBlock && activeTaskForBlock.subtasks.length > 0 && (
+            {activeCategoryForBlock && activeCategoryForBlock.activities.length > 0 && (
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Subtask</Text>
+                <Text style={styles.inputLabel}>Activity</Text>
                 <TouchableOpacity 
                   style={[styles.inputField, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]} 
-                  onPress={() => { setSubDropdownOpen(!subDropdownOpen); setTaskDropdownOpen(false); }}
+                  onPress={() => { setActivityDropdownOpen(!activityDropdownOpen); setCategoryDropdownOpen(false); }}
                 >
-                  <Text style={{ color: trackerTheme.colors.text }}>{blkSub || 'Select a subtask...'}</Text>
+                  <Text style={{ color: trackerTheme.colors.text }}>{blkActivity || 'Select an activity...'}</Text>
                   <Text style={{ color: trackerTheme.colors.text3, fontSize: 10 }}>▼</Text>
                 </TouchableOpacity>
                 
-                {subDropdownOpen && (
+                {activityDropdownOpen && (
                   <View style={styles.dropdownList}>
-                    {activeTaskForBlock.subtasks.map((s, i) => (
-                      <TouchableOpacity key={i} style={styles.dropdownItem} onPress={() => { setBlkSub(s); setSubDropdownOpen(false); }}>
+                    {activeCategoryForBlock.activities.map((s, i) => (
+                      <TouchableOpacity key={i} style={styles.dropdownItem} onPress={() => { setBlkActivity(s); setActivityDropdownOpen(false); }}>
                         <Text style={styles.dropdownItemText}>{s}</Text>
                       </TouchableOpacity>
                     ))}

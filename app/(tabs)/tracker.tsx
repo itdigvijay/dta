@@ -4,10 +4,10 @@ import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function calcScheduledHours(blocks: {start: string, end: string, taskName: string, sub?: string}[], taskName: string, sub?: string) {
+function calcScheduledHours(blocks: {start: string, end: string, categoryName: string, activity?: string}[], categoryName: string, activity?: string) {
   let total = 0;
   blocks.forEach(b => {
-    if (b.taskName === taskName && b.sub === sub) {
+    if (b.categoryName === categoryName && b.activity === activity) {
       const [sh, sm] = b.start.split(':').map(Number);
       let [eh, em] = b.end.split(':').map(Number);
       if (eh < sh) eh += 24;
@@ -19,7 +19,7 @@ function calcScheduledHours(blocks: {start: string, end: string, taskName: strin
 
 export default function UpdateScreen() {
   const insets = useSafeAreaInsets();
-  const { tasks, schedule, statusUpdates, updateStatus, updateStatusHours } = useTrackerContext();
+  const { categories, schedule, statusUpdates, updateStatus, updateStatusHours } = useTrackerContext();
 
   const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const today = new Date();
@@ -37,13 +37,13 @@ export default function UpdateScreen() {
   const isRest = daySchedule && daySchedule.length === 0;
   const isUnassigned = !daySchedule;
 
-  const scheduledItems: { task: any, taskName: string, sub: string }[] = [];
+  const scheduledItems: { category: any, categoryName: string, activity: string }[] = [];
   if (daySchedule) {
     daySchedule.forEach(item => {
-      const t = tasks.find(x => x.name === item.taskName);
+      const t = categories.find(x => x.name === item.categoryName);
       if (t) {
-        if (!scheduledItems.some(i => i.taskName === item.taskName && i.sub === item.subtask)) {
-          scheduledItems.push({ task: t, taskName: item.taskName, sub: item.subtask });
+        if (!scheduledItems.some(i => i.categoryName === item.categoryName && i.activity === item.activity)) {
+          scheduledItems.push({ category: t, categoryName: item.categoryName, activity: item.activity });
         }
       }
     });
@@ -81,13 +81,13 @@ export default function UpdateScreen() {
 
       <ScrollView contentContainerStyle={styles.section}>
         <Text style={styles.sectionTitle}>
-          {isRest ? 'Rest Day' : selectedDate === todayStr ? "Today's Tasks" : "Scheduled Tasks"}
+          {isRest ? 'Rest Day' : selectedDate === todayStr ? "Today's Categories" : "Scheduled Categories"}
         </Text>
         
         {isRest ? (
           <View style={{ padding: 30, alignItems: 'center' }}>
             <Text style={{ fontSize: 30, marginBottom: 10 }}>🛌</Text>
-            <Text style={{ color: trackerTheme.colors.text2 }}>Rest day. No tasks scheduled.</Text>
+            <Text style={{ color: trackerTheme.colors.text2 }}>Rest day. No categories scheduled.</Text>
           </View>
         ) : isUnassigned ? (
           <View style={{ padding: 30, alignItems: 'center' }}>
@@ -96,27 +96,27 @@ export default function UpdateScreen() {
           </View>
         ) : scheduledItems.length === 0 ? (
           <View style={{ padding: 30, alignItems: 'center' }}>
-            <Text style={{ color: trackerTheme.colors.text2 }}>No tasks in this template.</Text>
+            <Text style={{ color: trackerTheme.colors.text2 }}>No categories in this template.</Text>
           </View>
         ) : (
           scheduledItems.map(item => {
-            const itemKey = item.sub ? `${item.taskName}_${item.sub}` : item.taskName;
-            const displayScheduled = calcScheduledHours(daySchedule.map(s => ({ start: s.start, end: s.end, taskName: s.taskName, sub: s.subtask })), item.taskName, item.sub);
+            const itemKey = item.activity ? `${item.categoryName}_${item.activity}` : item.categoryName;
+            const displayScheduled = calcScheduledHours(daySchedule.map(s => ({ start: s.start, end: s.end, categoryName: s.categoryName, activity: s.activity })), item.categoryName, item.activity);
             
-            const taskData = statusUpdates[selectedDate]?.[item.taskName];
+            const catData = statusUpdates[selectedDate]?.[item.categoryName];
             let su;
-            if (item.sub) {
-              su = taskData?.subtasks?.[item.sub] || { actual: 0, scheduled: displayScheduled, status: 'pending' };
+            if (item.activity) {
+              su = catData?.activities?.[item.activity] || { actual: 0, scheduled: displayScheduled, status: 'pending' };
             } else {
-              su = taskData || { actual: 0, scheduled: displayScheduled, status: 'pending' };
+              su = catData || { actual: 0, scheduled: displayScheduled, status: 'pending' };
             }
 
             return (
               <View key={itemKey} style={styles.statusUpdateCard}>
                 <View style={styles.statusHeader}>
                   <View>
-                    <Text style={styles.statusName}>{item.task.icon} {item.task.name}</Text>
-                    {item.sub ? <Text style={{ fontSize: 13, color: trackerTheme.colors.text2, marginTop: 2 }}>{item.sub}</Text> : null}
+                    <Text style={styles.statusName}>{item.category.icon} {item.category.name}</Text>
+                    {item.activity ? <Text style={{ fontSize: 13, color: trackerTheme.colors.text2, marginTop: 2 }}>{item.activity}</Text> : null}
                   </View>
                   <View style={styles.statusToggle}>
                     {statusLabels.map(s => {
@@ -128,7 +128,7 @@ export default function UpdateScreen() {
                         else { bgColor = trackerTheme.colors.surface3; borderColor = trackerTheme.colors.text3; textColor = trackerTheme.colors.text; }
                       }
                       return (
-                        <TouchableOpacity key={s} onPress={() => updateStatus(selectedDate, item.taskName, item.sub, s, displayScheduled)} style={[styles.statusPill, { backgroundColor: bgColor, borderColor }]}>
+                        <TouchableOpacity key={s} onPress={() => updateStatus(selectedDate, item.categoryName, item.activity, s, displayScheduled)} style={[styles.statusPill, { backgroundColor: bgColor, borderColor }]}>
                           <Text style={{ fontSize: 11, fontWeight: '600', color: textColor }}>{s}</Text>
                         </TouchableOpacity>
                       );
@@ -139,7 +139,7 @@ export default function UpdateScreen() {
                 <View style={styles.hoursRow}>
                   <Text style={styles.hoursLabel}>Progress</Text>
                   <View style={styles.hoursBar}>
-                    <View style={[styles.hoursFill, { width: `${Math.min(100, (su.actual / displayScheduled) * 100 || 0)}%`, backgroundColor: item.task.color }]} />
+                    <View style={[styles.hoursFill, { width: `${Math.min(100, (su.actual / displayScheduled) * 100 || 0)}%`, backgroundColor: item.category.color }]} />
                   </View>
                   <Text style={styles.hoursVal}>{su.actual}/{displayScheduled}h</Text>
                 </View>
@@ -147,11 +147,11 @@ export default function UpdateScreen() {
                 <View style={{ marginTop: 10 }}>
                   <Text style={{ fontSize: 11, color: trackerTheme.colors.text3, marginBottom: 8 }}>Adjust actual hours</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(selectedDate, item.taskName, item.sub, Math.max(0, su.actual - 0.5), displayScheduled)}>
+                    <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(selectedDate, item.categoryName, item.activity, Math.max(0, su.actual - 0.5), displayScheduled)}>
                       <Text style={styles.adjustBtnText}>-</Text>
                     </TouchableOpacity>
                     <Text style={{ flex: 1, textAlign: 'center', color: trackerTheme.colors.text, fontSize: 16, fontWeight: '600' }}>{su.actual}h</Text>
-                    <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(selectedDate, item.taskName, item.sub, Math.min(displayScheduled, su.actual + 0.5), displayScheduled)}>
+                    <TouchableOpacity style={styles.adjustBtn} onPress={() => updateStatusHours(selectedDate, item.categoryName, item.activity, Math.min(displayScheduled, su.actual + 0.5), displayScheduled)}>
                       <Text style={styles.adjustBtnText}>+</Text>
                     </TouchableOpacity>
                   </View>

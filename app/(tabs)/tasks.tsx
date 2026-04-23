@@ -6,52 +6,51 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TasksScreen() {
   const insets = useSafeAreaInsets();
-  const { tasks, statusUpdates, schedule, addTask, addSubtask, removeSubtask, removeTask, updateTaskName } = useTrackerContext();
+  const { categories, statusUpdates, schedule, addCategory, addActivity, removeActivity, removeCategory, updateCategoryName } = useTrackerContext();
   const [modalVisible, setModalVisible] = useState(false);
-  const [taskModalVisible, setTaskModalVisible] = useState<number | null>(null);
+  const [categoryModalVisible, setCategoryModalVisible] = useState<number | null>(null);
 
-  const [newTaskName, setNewTaskName] = useState('');
-  const [newTaskIcon, setNewTaskIcon] = useState('📌');
-  const [newTaskColor, setNewTaskColor] = useState('#7C6DED');
-  const [newTaskSubs, setNewTaskSubs] = useState('');
-  const [newTaskHours, setNewTaskHours] = useState('2');
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryIcon, setNewCategoryIcon] = useState('📌');
+  const [newCategoryColor, setNewCategoryColor] = useState('#7C6DED');
+  const [newCategoryActivities, setNewCategoryActivities] = useState('');
 
-  const [newSubtaskName, setNewSubtaskName] = useState('');
+  const [newActivityName, setNewActivityName] = useState('');
 
   const colors = ['#5BC4A0', '#7C6DED', '#F06B6B', '#F0A83E', '#378ADD'];
   const icons = ['📚', '🌙', '🏋', '💼', '🎵', '🍎', '🧘', '💡'];
 
-  const handleAddTask = () => {
-    if (!newTaskName.trim()) return;
-    if (tasks.some(t => t.name.toLowerCase() === newTaskName.trim().toLowerCase())) {
+  const handleAddCategory = () => {
+    if (!newCategoryName.trim()) return;
+    if (categories.some(t => t.name.toLowerCase() === newCategoryName.trim().toLowerCase())) {
       return;
     }
 
-    const subs = newTaskSubs.split(',').map(s => s.trim()).filter(Boolean);
-    addTask({
-      name: newTaskName,
-      icon: newTaskIcon,
-      color: newTaskColor,
-      subtasks: subs,
+    const subs = newCategoryActivities.split(',').map(s => s.trim()).filter(Boolean);
+    addCategory({
+      name: newCategoryName,
+      icon: newCategoryIcon,
+      color: newCategoryColor,
+      activities: subs,
       type: 'work'
     });
     setModalVisible(false);
-    setNewTaskName('');
-    setNewTaskSubs('');
+    setNewCategoryName('');
+    setNewCategoryActivities('');
   };
 
-  const handleAddSubtask = (taskId: number) => {
-    if (!newSubtaskName.trim()) return;
-    addSubtask(taskId, newSubtaskName.trim());
-    setNewSubtaskName('');
+  const handleAddActivity = (categoryId: number) => {
+    if (!newActivityName.trim()) return;
+    addActivity(categoryId, newActivityName.trim());
+    setNewActivityName('');
   };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>My Tasks</Text>
-          <Text style={styles.pageSub}>Manage tasks & subtasks</Text>
+          <Text style={styles.pageTitle}>My Categories</Text>
+          <Text style={styles.pageSub}>Manage categories & activities</Text>
         </View>
         <TouchableOpacity style={styles.chip} onPress={() => setModalVisible(true)}>
           <Text style={styles.chipText}>+ Add</Text>
@@ -60,13 +59,13 @@ export default function TasksScreen() {
 
       <ScrollView contentContainerStyle={styles.section}>
         <Text style={styles.sectionTitle}>Active Categories</Text>
-        {tasks.map(task => {
+        {categories.map(category => {
           let actual = 0, sched = 0;
 
           Object.values(schedule).forEach(daySched => {
             if (daySched) {
               daySched.forEach(item => {
-                if (item.taskName === task.name) {
+                if (item.categoryName === category.name) {
                   const [sh, sm] = item.start.split(':').map(Number);
                   let [eh, em] = item.end.split(':').map(Number);
                   if (eh < sh) eh += 24;
@@ -77,11 +76,11 @@ export default function TasksScreen() {
           });
 
           Object.values(statusUpdates).forEach(dateData => {
-            const taskData = dateData[task.name];
-            if (taskData) {
-              actual += taskData.actual || 0;
-              if (taskData.subtasks) {
-                Object.values(taskData.subtasks).forEach(subU => {
+            const catData = dateData[category.name];
+            if (catData) {
+              actual += catData.actual || 0;
+              if (catData.activities) {
+                Object.values(catData.activities).forEach(subU => {
                   actual += subU.actual || 0;
                 });
               }
@@ -90,31 +89,31 @@ export default function TasksScreen() {
           const progress = sched > 0 ? Math.round((actual / sched) * 100) : 0;
           
           return (
-            <TouchableOpacity key={task.id} style={styles.taskCard} onPress={() => setTaskModalVisible(task.id)}>
+            <TouchableOpacity key={category.id} style={styles.taskCard} onPress={() => setCategoryModalVisible(category.id)}>
               <View style={styles.taskCardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontSize: 18 }}>{task.icon}</Text>
-                  <Text style={styles.taskName}>{task.name}</Text>
+                  <Text style={{ fontSize: 18 }}>{category.icon}</Text>
+                  <Text style={styles.taskName}>{category.name}</Text>
                 </View>
-                <View style={[styles.taskBadge, { backgroundColor: task.color + '26' }]}>
+                <View style={[styles.taskBadge, { backgroundColor: category.color + '26' }]}>
                   {/* <Text style={{ color: task.color, fontSize: 10, fontWeight: '600' }}>{task.subtasks.length} subtasks</Text> */}
-                           <TouchableOpacity onPress={() => removeTask(task.id)}>
+                           <TouchableOpacity onPress={() => removeCategory(category.id)}>
                                <Text style={{ color: trackerTheme.colors.accent3, fontSize: 18 }}>×</Text>
                           </TouchableOpacity>
                   
                 </View>
               </View>
               <View>
-                {task.subtasks.slice(0, 3).map((s, i) => (
+                {category.activities.slice(0, 3).map((s, i) => (
                   <View key={i} style={styles.subtaskRow}>
-                    <View style={[styles.subtaskDot, { backgroundColor: task.color }]} />
+                    <View style={[styles.subtaskDot, { backgroundColor: category.color }]} />
                     <Text style={styles.subtaskName}>{s}</Text>
                   </View>
                 ))}
-                {task.subtasks.length > 3 && (
+                {category.activities.length > 3 && (
                   <View style={styles.subtaskRow}>
                     <View style={styles.subtaskDot} />
-                    <Text style={[styles.subtaskName, { color: trackerTheme.colors.text3 }]}>+{task.subtasks.length - 3} more</Text>
+                    <Text style={[styles.subtaskName, { color: trackerTheme.colors.text3 }]}>+{category.activities.length - 3} more</Text>
                   </View>
                 )}
               </View>
@@ -136,13 +135,13 @@ export default function TasksScreen() {
             <Text style={styles.modalTitle}>New Category</Text>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Category Name</Text>
-              <TextInput style={styles.inputField} placeholder="e.g. Reading, Meditation..." placeholderTextColor={trackerTheme.colors.text3} value={newTaskName} onChangeText={setNewTaskName} />
+              <TextInput style={styles.inputField} placeholder="e.g. Reading, Meditation..." placeholderTextColor={trackerTheme.colors.text3} value={newCategoryName} onChangeText={setNewCategoryName} />
             </View>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Icon</Text>
               <View style={styles.colorOptions}>
                 {icons.map(ic => (
-                  <TouchableOpacity key={ic} onPress={() => setNewTaskIcon(ic)} style={[styles.iconOpt, newTaskIcon === ic && { borderColor: trackerTheme.colors.accent }]}>
+                  <TouchableOpacity key={ic} onPress={() => setNewCategoryIcon(ic)} style={[styles.iconOpt, newCategoryIcon === ic && { borderColor: trackerTheme.colors.accent }]}>
                     <Text style={{ fontSize: 18 }}>{ic}</Text>
                   </TouchableOpacity>
                 ))}
@@ -152,56 +151,56 @@ export default function TasksScreen() {
               <Text style={styles.inputLabel}>Color</Text>
               <View style={styles.colorOptions}>
                 {colors.map(c => (
-                  <TouchableOpacity key={c} onPress={() => setNewTaskColor(c)} style={[styles.colorOpt, { backgroundColor: c }, newTaskColor === c && styles.colorOptSelected]} />
+                  <TouchableOpacity key={c} onPress={() => setNewCategoryColor(c)} style={[styles.colorOpt, { backgroundColor: c }, newCategoryColor === c && styles.colorOptSelected]} />
                 ))}
               </View>
             </View>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Subtasks (comma-separated)</Text>
-              <TextInput style={styles.inputField} placeholder="e.g. Math, English" placeholderTextColor={trackerTheme.colors.text3} value={newTaskSubs} onChangeText={setNewTaskSubs} />
+              <Text style={styles.inputLabel}>Activities (comma-separated)</Text>
+              <TextInput style={styles.inputField} placeholder="e.g. Math, English" placeholderTextColor={trackerTheme.colors.text3} value={newCategoryActivities} onChangeText={setNewCategoryActivities} />
             </View>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.btnCancel} onPress={() => setModalVisible(false)}><Text style={styles.btnCancelText}>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.btnPrimary} onPress={handleAddTask}><Text style={styles.btnPrimaryText}>Create</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.btnPrimary} onPress={handleAddCategory}><Text style={styles.btnPrimaryText}>Create</Text></TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
       {/* View/Edit Task Modal */}
-      {taskModalVisible !== null && (
+      {categoryModalVisible !== null && (
         <Modal visible transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={styles.modal}>
               {(() => {
-                const task = tasks.find(t => t.id === taskModalVisible);
-                if (!task) return null;
+                const category = categories.find(t => t.id === categoryModalVisible);
+                if (!category) return null;
                 return (
                   <>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                      <Text style={{ fontSize: 28 }}>{task.icon}</Text>
-                      <Text style={styles.modalTitle}>{task.name}</Text>
+                      <Text style={{ fontSize: 28 }}>{category.icon}</Text>
+                      <Text style={styles.modalTitle}>{category.name}</Text>
                     </View>
-                    <Text style={styles.sectionTitle}>Subtasks</Text>
+                    <Text style={styles.sectionTitle}>Activities</Text>
                     <ScrollView style={{ maxHeight: 200, marginBottom: 12 }}>
-                      {task.subtasks.map((s, i) => (
+                      {category.activities.map((s, i) => (
                         <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: trackerTheme.colors.border }}>
-                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: task.color }} />
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: category.color }} />
                           <Text style={{ flex: 1, fontSize: 14, color: trackerTheme.colors.text }}>{s}</Text>
-                          <TouchableOpacity onPress={() => removeSubtask(task.id, i)}>
+                          <TouchableOpacity onPress={() => removeActivity(category.id, i)}>
                             <Text style={{ color: trackerTheme.colors.accent3, fontSize: 18 }}>×</Text>
                           </TouchableOpacity>
                         </View>
                       ))}
                     </ScrollView>
                     <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <TextInput style={[styles.inputField, { flex: 1 }]} placeholder="Add subtask..." placeholderTextColor={trackerTheme.colors.text3} value={newSubtaskName} onChangeText={setNewSubtaskName} />
-                      <TouchableOpacity style={[styles.btnPrimary, { paddingHorizontal: 16, paddingVertical: 10 }]} onPress={() => handleAddSubtask(task.id)}>
+                      <TextInput style={[styles.inputField, { flex: 1 }]} placeholder="Add activity..." placeholderTextColor={trackerTheme.colors.text3} value={newActivityName} onChangeText={setNewActivityName} />
+                      <TouchableOpacity style={[styles.btnPrimary, { paddingHorizontal: 16, paddingVertical: 10 }]} onPress={() => handleAddActivity(category.id)}>
                         <Text style={styles.btnPrimaryText}>Add</Text>
                       </TouchableOpacity>
                     </View>
                     <View style={styles.modalActions}>
-                      <TouchableOpacity style={[styles.btnCancel, { flex: 1 }]} onPress={() => setTaskModalVisible(null)}><Text style={styles.btnCancelText}>Close</Text></TouchableOpacity>
+                      <TouchableOpacity style={[styles.btnCancel, { flex: 1 }]} onPress={() => setCategoryModalVisible(null)}><Text style={styles.btnCancelText}>Close</Text></TouchableOpacity>
                     </View>
                   </>
                 );
