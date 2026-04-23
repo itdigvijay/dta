@@ -18,6 +18,14 @@ function calcDur(start: string, end: string) {
   return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+function addOneHour(timeStr: string) {
+  if (!timeStr || !timeStr.includes(':')) return '00:00';
+  const [hStr, mStr] = timeStr.split(':');
+  let h = parseInt(hStr, 10);
+  h = (h + 1) % 24;
+  return `${String(h).padStart(2, '0')}:${mStr}`;
+}
+
 export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
   const { categories, schedule, templates, addTemplate, deleteTemplate, assignTemplate, cycleBlockStatus } = useTrackerContext();
@@ -41,6 +49,17 @@ export default function ScheduleScreen() {
   const [blkActivity, setBlkActivity] = useState<string>('');
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
   const [activityDropdownOpen, setActivityDropdownOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [autoFillMsg, setAutoFillMsg] = useState<{text: string, isError: boolean} | null>(null);
+
+  const currentTotalMins = tplBlocks.reduce((total, block) => {
+    if (!block.start || !block.end) return total;
+    const [bsh, bsm] = block.start.split(':').map(Number);
+    let [beh, bem] = block.end.split(':').map(Number);
+    if (beh < bsh || (beh === bsh && bem < bsm)) beh += 24;
+    const duration = (beh * 60 + (bem || 0)) - (bsh * 60 + (bsm || 0));
+    return total + (duration > 0 ? duration : 0);
+  }, 0);
 
   useEffect(() => {
     const activeT = categories.find(t => t.name === blkCategoryName);
@@ -49,17 +68,70 @@ export default function ScheduleScreen() {
     }
   }, [blkCategoryName]);
 
+  const handleStartChange = (text: string) => {
+    setBlkStart(text);
+    if (/^\d{1,2}:\d{2}$/.test(text)) {
+      setBlkEnd(addOneHour(text));
+    }
+  };
+
   const handleAddBlock = () => {
-    if (!blkCategoryName) return;
+    setSaveError(null);
+    if (!blkCategoryName) {
+      setSaveError('Category Missing: Please select a category first.');
+      return;
+    }
+
+    const [sh, sm] = blkStart.split(':').map(Number);
+    let [eh, em] = blkEnd.split(':').map(Number);
+    if (eh < sh || (eh === sh && em < sm)) eh += 24;
+    const newDur = (eh * 60 + (em || 0)) - (sh * 60 + (sm || 0));
+
+    if (currentTotalMins + newDur > 24 * 60) {
+      const availableMins = (24 * 60) - currentTotalMins;
+      setSaveError(`Limit Exceeded: This block goes beyond 24 hours and cannot be added.\n\nYou only have ${Math.floor(availableMins / 60)}h ${availableMins % 60}m left to schedule.`);
+      return;
+    }
+
     setTplBlocks([...tplBlocks, { start: blkStart, end: blkEnd, categoryName: blkCategoryName, activity: blkActivity }]);
+    setBlkStart(blkEnd);
+    setBlkEnd(addOneHour(blkEnd));
   };
 
   const handleSaveTpl = () => {
-    if (!tplName.trim()) return;
+    setSaveError(null);
+
+    if (tplBlocks.length === 0) {
+      setSaveError("Empty Template: You haven't added any time blocks yet.\n\nPlease create a full 24-hour schedule first.");
+      return;
+    }
+
+    const hours = Math.floor(currentTotalMins / 60);
+    const minutes = currentTotalMins % 60;  
+
+    if (currentTotalMins < 24 * 60) {
+      const remMins = (24 * 60) - currentTotalMins;
+      const remH = Math.floor(remMins / 60);
+      const remM = remMins % 60;
+      setSaveError(`Incomplete Schedule: Your template is not 24 hours long yet.\n\nYou have only added ${hours}h ${minutes}m.\nYou still need to add ${remH}h ${remM}m.`);
+      return;
+    }
+    if (currentTotalMins > 24 * 60) {
+      setSaveError(`Limit Exceeded: Your schedule is over 24 hours.\n\nThe template is currently ${hours}h ${minutes}m long. It must be exactly 24 hours.`);
+      return;
+    }
+
+    if (!tplName.trim()) {
+      setSaveError('Please enter a Template name before saving.');
+      return;
+    }
+
     addTemplate({ name: tplName, color: tplColor, blocks: tplBlocks });
     setAddModalVisible(false);
     setTplName('');
     setTplBlocks([]);
+    setBlkStart('08:00');
+    setBlkEnd('09:00');
   };
 
   const daysArr = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -73,6 +145,41 @@ export default function ScheduleScreen() {
   const activeCategoryForBlock = categories.find(t => t.name === blkCategoryName);
   const daySchedule = schedule[selectedDate];
   const isRestSelected = daySchedule && daySchedule.length === 0;
+
+  const handleAutoFill = () => {
+    setAutoFillMsg(null);
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const weekdayTpl = templates.find(t => normalize(t.name).includes('weekday'));
+    const weekendTpl = templates.find(t => normalize(t.name).includes('weekend'));
+    
+    if (!weekdayTpl || !weekendTpl) {
+      setAutoFillMsg({ text: 'Error: Aapko pehle 2 templates banane honge. Ek ke naam me "Weekday" aur dusre me "Weekend" likha hona zaroori hai.', isError: true });
+      return;
+    }
+
+    let assignedCount = 0;
+    dateStrip.forEach(d => {
+      const dayIndex = daysArr.indexOf(d.day);
+      // Sirf Sunday (0) ko weekend maana gaya hai, Monday-Saturday weekdays hain
+      const isWeekend = dayIndex === 0;
+      
+      // Agar aapne us din ko pehle se Rest Day mark kiya hai, to auto-fill usko change nahi karega
+      const existingSched = schedule[d.full];
+      const isAlreadyRestDay = existingSched && existingSched.length === 0;
+
+      if (!isAlreadyRestDay) {
+        if (isWeekend && weekendTpl) {
+          assignTemplate(d.full, weekendTpl.id);
+          assignedCount++;
+        } else if (!isWeekend && weekdayTpl) {
+          assignTemplate(d.full, weekdayTpl.id);
+          assignedCount++;
+        }
+      }
+    });
+    setAutoFillMsg({ text: `Success! Auto-assigned tasks for ${assignedCount} days.\n(Skipped your existing Rest Days)`, isError: false });
+    setTimeout(() => setAutoFillMsg(null), 5000);
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -155,7 +262,12 @@ export default function ScheduleScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.section}>
-            <Text style={styles.sectionTitle}>Assign template</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Assign template</Text>
+              <TouchableOpacity onPress={handleAutoFill}>
+                <Text style={{ color: trackerTheme.colors.accent, fontSize: 12, fontWeight: '600' }}>Auto-fill Week</Text>
+              </TouchableOpacity>
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assignRow}>
               {templates.map(tpl => (
                 <TouchableOpacity key={tpl.id} style={styles.assignChip} onPress={() => assignTemplate(selectedDate, tpl.id)}>
@@ -171,6 +283,12 @@ export default function ScheduleScreen() {
                 </TouchableOpacity>
               )}
             </ScrollView>
+
+          {autoFillMsg && (
+            <View style={{ backgroundColor: autoFillMsg.isError ? 'rgba(240,107,107,.12)' : 'rgba(91,196,160,.12)', padding: 12, borderRadius: trackerTheme.radius.sm, marginBottom: 12, borderWidth: 1, borderColor: autoFillMsg.isError ? 'rgba(240,107,107,.3)' : 'rgba(91,196,160,.3)' }}>
+              <Text style={{ color: autoFillMsg.isError ? trackerTheme.colors.accent3 : trackerTheme.colors.accent2, fontSize: 13, fontWeight: '600', textAlign: 'center', lineHeight: 20 }}>{autoFillMsg.text}</Text>
+            </View>
+          )}
 
             {isRestSelected ? (
               <View style={styles.restBanner}>
@@ -237,7 +355,7 @@ export default function ScheduleScreen() {
 
       <Modal visible={isAddModalVisible} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-          <ScrollView style={styles.modal} contentContainerStyle={{ paddingBottom: 40 }}>
+          <ScrollView style={styles.modal} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.modalTitle}>Create Template</Text>
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Template name</Text>
@@ -254,7 +372,7 @@ export default function ScheduleScreen() {
 
             <View style={{ height: 1, backgroundColor: trackerTheme.colors.border, marginVertical: 12 }} />
 
-            <Text style={[styles.sectionTitle, { marginBottom: 6 }]}>Time Blocks</Text>
+            <Text style={[styles.sectionTitle, { marginBottom: 6 }]}>Time Blocks ({Math.floor(currentTotalMins / 60)}h {currentTotalMins % 60}m / 24h)</Text>
             {tplBlocks.length > 0 && (
               <View style={{ marginBottom: 12 }}>
                 {tplBlocks.map((b, i) => {
@@ -280,7 +398,7 @@ export default function ScheduleScreen() {
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.inputLabel}>Start</Text>
-                <TextInput style={styles.inputField} value={blkStart} onChangeText={setBlkStart} placeholder="08:00" placeholderTextColor={trackerTheme.colors.text3} keyboardType="numbers-and-punctuation" />
+                <TextInput style={styles.inputField} value={blkStart} onChangeText={handleStartChange} placeholder="08:00" placeholderTextColor={trackerTheme.colors.text3} keyboardType="numbers-and-punctuation" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.inputLabel}>End</Text>
@@ -338,8 +456,14 @@ export default function ScheduleScreen() {
               <Text style={styles.addBlockBtnText}>+ Add this block</Text>
             </TouchableOpacity>
 
+            {saveError && (
+              <View style={{ backgroundColor: 'rgba(240,107,107,.12)', padding: 12, borderRadius: trackerTheme.radius.sm, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(240,107,107,.3)' }}>
+                <Text style={{ color: trackerTheme.colors.accent3, fontSize: 13, fontWeight: '600', textAlign: 'center', lineHeight: 20 }}>{saveError}</Text>
+              </View>
+            )}
+
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.btnCancel} onPress={() => setAddModalVisible(false)}>
+              <TouchableOpacity style={styles.btnCancel} onPress={() => { setAddModalVisible(false); setSaveError(null); }}>
                 <Text style={styles.btnCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.btnPrimary} onPress={handleSaveTpl}>

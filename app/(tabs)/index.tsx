@@ -1,6 +1,7 @@
 import { useTrackerContext } from '@/app/context/TrackerContext';
 import { trackerTheme } from '@/constants/trackerTheme';
-import { useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,14 +15,45 @@ const calcDurHours = (start: string, end: string) => {
   return (eh * 60 + (em || 0) - (sh * 60 + (sm || 0))) / 60;
 };
 
+const getMonthDays = (currentDate: Date) => {
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const days = [];
+  for (let i = 0; i < firstDay; i++) days.push(null);
+  for (let i = 1; i <= daysInMonth; i++) {
+    days.push({ date: i, full: `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}` });
+  }
+  return days;
+};
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
-  const { categories, statusUpdates, schedule } = useTrackerContext();
+  const router = useRouter();
+  const { categories, statusUpdates, schedule, currentUser, logoutUser } = useTrackerContext();
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const [reportDate, setReportDate] = useState(todayStr);
+
+  const [greeting, setGreeting] = useState('Good morning,');
+
+  useFocusEffect(
+    useCallback(() => {
+      const hour = new Date().getHours();
+      if (hour < 12) setGreeting('Good morning,');
+      else if (hour < 18) setGreeting('Good afternoon,');
+      else setGreeting('Good evening,');
+    }, [])
+  );
+
+  const handleSwitchProfile = () => {
+    logoutUser();
+    router.replace('/login');
+  };
+
   const getDates = (daysBack: number) => {
     return Array.from({ length: daysBack }).map((_, i) => {
       const d = new Date(today);
@@ -149,10 +181,14 @@ export default function DashboardScreen() {
     <ScrollView style={[styles.container, { paddingTop: insets.top }]} contentContainerStyle={{ paddingBottom: 100 }}>
       {/* Greeting */}
       <View style={styles.greetingBanner}>
-        <Text style={styles.greeting}>Good morning,</Text>
-        <Text style={styles.greetingName}>DailyTracker</Text>
-        <View style={styles.streakBadge}>
-          <Text style={styles.streakText}>🔥 7 day streak</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View>
+            <Text style={styles.greeting}>{greeting}</Text>
+            <Text style={styles.greetingName}>{currentUser || 'User'}</Text>
+          </View>
+          <TouchableOpacity onPress={handleSwitchProfile} style={styles.switchBtn}>
+            <Text style={styles.switchText}>Switch Profile</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -268,6 +304,35 @@ export default function DashboardScreen() {
         ))}
       </View> */}
 
+      {/* Monthly Calendar */}
+      {period === 'monthly' && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Monthly Calendar</Text>
+          <View style={styles.calendarCard}>
+            <View style={styles.calendarHeader}>
+              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                <Text key={day} style={styles.calDayText}>{day}</Text>
+              ))}
+            </View>
+            <View style={styles.calendarGrid}>
+              {getMonthDays(today).map((d, i) => {
+                if (!d) return <View key={i} style={styles.calCellEmpty} />;
+                const isToday = d.full === todayStr;
+                const isSel = d.full === reportDate;
+                const daySched = schedule[d.full] || [];
+                const hasTasks = daySched.length > 0;
+                return (
+                  <TouchableOpacity key={i} style={[styles.calCell, isToday && styles.calCellToday, isSel && !isToday && styles.calCellSel]} onPress={() => setReportDate(d.full)}>
+                    <Text style={[styles.calCellText, isToday && styles.calCellTextToday]}>{d.date}</Text>
+                    {hasTasks && <View style={styles.calDot} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Highlights */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{period.charAt(0).toUpperCase() + period.slice(1)} Highlights</Text>
@@ -314,25 +379,28 @@ export default function DashboardScreen() {
 
       {/* Daily Task Breakdown Report */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Daily Breakdown Report</Text>
-        <View style={styles.dateStrip}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {reportDateStrip.map((d, i) => (
-              <TouchableOpacity 
-                key={i} 
-                style={[
-                  styles.dateCell, 
-                  d.isToday && styles.dateCellToday,
-                  reportDate === d.full && !d.isToday && styles.dateCellSel
-                ]}
-                onPress={() => setReportDate(d.full)}
-              >
-                <Text style={[styles.dateWd, d.isToday && styles.dateWdToday]}>{d.day}</Text>
-                <Text style={[styles.dateNum, d.isToday && styles.dateNumToday]}>{d.date}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+        <Text style={styles.sectionTitle}>{period === 'monthly' ? 'Selected Day Breakdown' : 'Daily Breakdown Report'}</Text>
+        
+        {period !== 'monthly' && (
+          <View style={styles.dateStrip}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {reportDateStrip.map((d, i) => (
+                <TouchableOpacity 
+                  key={i} 
+                  style={[
+                    styles.dateCell, 
+                    d.isToday && styles.dateCellToday,
+                    reportDate === d.full && !d.isToday && styles.dateCellSel
+                  ]}
+                  onPress={() => setReportDate(d.full)}
+                >
+                  <Text style={[styles.dateWd, d.isToday && styles.dateWdToday]}>{d.day}</Text>
+                  <Text style={[styles.dateNum, d.isToday && styles.dateNumToday]}>{d.date}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         <View style={styles.breakdownCard}>
           <View style={styles.breakdownHeader}>
@@ -362,8 +430,8 @@ const styles = StyleSheet.create({
   greetingBanner: { padding: 20, paddingTop: 10, paddingBottom: 4 },
   greeting: { fontSize: 13, color: trackerTheme.colors.text2 },
   greetingName: { fontSize: 26, fontWeight: '800', color: trackerTheme.colors.text, letterSpacing: -0.5, marginTop: 2 },
-  streakBadge: { alignSelf: 'flex-start', backgroundColor: 'rgba(240,168,62,0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, marginTop: 6 },
-  streakText: { color: trackerTheme.colors.accent4, fontSize: 12, fontWeight: '600' },
+  switchBtn: { backgroundColor: trackerTheme.colors.surface2, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: trackerTheme.colors.border },
+  switchText: { fontSize: 12, fontWeight: '600', color: trackerTheme.colors.text2 },
   periodTabsContainer: { paddingHorizontal: 20, paddingVertical: 12 },
   periodTabs: { flexDirection: 'row', gap: 6 },
   periodTab: { flex: 1, padding: 8, alignItems: 'center', borderRadius: trackerTheme.radius.sm, borderWidth: 1, borderColor: trackerTheme.colors.border },
@@ -413,4 +481,15 @@ const styles = StyleSheet.create({
   dateWdToday: { color: 'rgba(255,255,255,0.7)' },
   dateNum: { fontSize: 15, fontWeight: '700', color: trackerTheme.colors.text },
   dateNumToday: { color: 'white' },
+  calendarCard: { backgroundColor: trackerTheme.colors.surface, borderRadius: trackerTheme.radius.lg, padding: 16, borderWidth: 1, borderColor: trackerTheme.colors.border },
+  calendarHeader: { flexDirection: 'row', marginBottom: 8 },
+  calDayText: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '600', color: trackerTheme.colors.text3, textTransform: 'uppercase' },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calCellEmpty: { width: '14.28%', height: 40 },
+  calCell: { width: '14.28%', height: 40, justifyContent: 'center', alignItems: 'center', borderRadius: 8, marginVertical: 2 },
+  calCellToday: { backgroundColor: trackerTheme.colors.accent },
+  calCellSel: { backgroundColor: 'rgba(124,109,237,.15)', borderWidth: 1, borderColor: trackerTheme.colors.accent },
+  calCellText: { fontSize: 14, color: trackerTheme.colors.text, fontWeight: '500' },
+  calCellTextToday: { color: 'white', fontWeight: '700' },
+  calDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: trackerTheme.colors.accent2, marginTop: 2 },
 });

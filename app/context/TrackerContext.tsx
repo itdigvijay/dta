@@ -40,31 +40,34 @@ export interface StatusUpdate {
   status: 'pending' | 'partial' | 'completed';
 }
 
-export interface TaskStatus {
+export interface CategoryStatus {
   actual: number;
   scheduled: number;
   status: 'pending' | 'partial' | 'completed';
-  subtasks: Record<string, StatusUpdate>;
+  activities: Record<string, StatusUpdate>;
 }
 
 interface TrackerContextType {
-  tasks: Task[];
+  categories: Category[];
   schedule: Record<string, ScheduleItem[]>;
   templates: Template[];
   blockStatus: Record<string, Record<number, string>>;
-  statusUpdates: Record<string, Record<string, TaskStatus>>;
-  addTask: (task: Omit<Task, 'id'>) => void;
-  addSubtask: (taskId: number, subtask: string) => void;
-  removeSubtask: (taskId: number, subtaskIndex: number) => void;
-  removeTask: (taskId: number) => void;
-  updateTaskName: (taskId: number, newName: string) => void;
+  statusUpdates: Record<string, Record<string, CategoryStatus>>;
+  currentUser: string | null;
+  loginUser: (name: string) => void;
+  logoutUser: () => void;
+  addCategory: (category: Omit<Category, 'id'>) => void;
+  addActivity: (categoryId: number, activity: string) => void;
+  removeActivity: (categoryId: number, activityIndex: number) => void;
+  removeCategory: (categoryId: number) => void;
+  updateCategoryName: (categoryId: number, newName: string) => void;
   addSchedule: (date: string, item: Omit<ScheduleItem, 'id' | 'status'>) => void;
   addTemplate: (template: Omit<Template, 'id'>) => void;
   deleteTemplate: (id: string) => void;
   assignTemplate: (date: string, templateId: string) => void;
   cycleBlockStatus: (date: string, itemId: number) => void;
-  updateStatus: (date: string, taskName: string, subtask: string | undefined, status: 'pending' | 'partial' | 'completed', scheduledOverride?: number) => void;
-  updateStatusHours: (date: string, taskName: string, subtask: string | undefined, hours: number, scheduledOverride?: number) => void;
+  updateStatus: (date: string, categoryName: string, activity: string | undefined, status: 'pending' | 'partial' | 'completed', scheduledOverride?: number) => void;
+  updateStatusHours: (date: string, categoryName: string, activity: string | undefined, hours: number, scheduledOverride?: number) => void;
 }
 
 const initialState = {
@@ -93,55 +96,95 @@ try {
   console.warn('SQLite init error:', e);
 }
 
-const loadState = (key: string, defaultVal: any) => {
+const loadGlobalState = (key: string, defaultVal: any) => {
   if (Platform.OS === 'web') {
     try {
       if (typeof window !== 'undefined') {
-        const val = window.localStorage.getItem(`tracker_${key}`);
+        const val = window.localStorage.getItem(`tracker_global_${key}`);
         return val ? JSON.parse(val) : defaultVal;
       }
     } catch (e) { return defaultVal; }
   }
   if (!db) return defaultVal;
   try {
-    const result = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [key]);
+    const result = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [`global_${key}`]);
     return result ? JSON.parse(result.value) : defaultVal;
   } catch (e) {
-    console.warn('Error loading state for', key, e);
     return defaultVal;
   }
 };
 
-const saveState = (key: string, value: any) => {
+const saveGlobalState = (key: string, value: any) => {
   if (Platform.OS === 'web') {
     try {
-      if (typeof window !== 'undefined') window.localStorage.setItem(`tracker_${key}`, JSON.stringify(value));
+      if (typeof window !== 'undefined') window.localStorage.setItem(`tracker_global_${key}`, JSON.stringify(value));
     } catch (e) {}
     return;
   }
   if (!db) return;
   try {
-    db.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [key, JSON.stringify(value)]);
+    db.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [`global_${key}`, JSON.stringify(value)]);
+  } catch (e) {}
+};
+
+const loadState = (key: string, defaultVal: any, username: string | null) => {
+  if (!username) return defaultVal;
+  const userKey = `${username}_${key}`;
+  if (Platform.OS === 'web') {
+    try {
+      if (typeof window !== 'undefined') {
+        const val = window.localStorage.getItem(`tracker_${userKey}`);
+        if (val) return JSON.parse(val);
+        const legacyVal = window.localStorage.getItem(`tracker_${key}`);
+        return legacyVal ? JSON.parse(legacyVal) : defaultVal;
+      }
+    } catch (e) { return defaultVal; }
+  }
+  if (!db) return defaultVal;
+  try {
+    const result = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [userKey]);
+    if (result) return JSON.parse(result.value);
+    
+    // Give legacy data to the first profile created so no data is lost!
+    const legacyResult = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [key]);
+    return legacyResult ? JSON.parse(legacyResult.value) : defaultVal;
   } catch (e) {
-    console.warn('Error saving state for', key, e);
+    return defaultVal;
   }
 };
 
+const saveState = (key: string, value: any, username: string | null) => {
+  if (!username) return;
+  const userKey = `${username}_${key}`;
+  if (Platform.OS === 'web') {
+    try {
+      if (typeof window !== 'undefined') window.localStorage.setItem(`tracker_${userKey}`, JSON.stringify(value));
+    } catch (e) {}
+    return;
+  }
+  if (!db) return;
+  try {
+    db.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [userKey, JSON.stringify(value)]);
+  } catch (e) {}
+};
+
 export const TrackerProvider = ({ children }: { children: ReactNode }) => {
-  const [categories, setCategories] = useState<Category[]>(() => {
-    const loaded = loadState('categories', null);
+  const activeUser = loadGlobalState('active_user', null);
+  const [currentUser, setCurrentUser] = useState<string | null>(activeUser);
+
+  const loadCats = (u: string | null) => {
+    const loaded = loadState('categories', null, u);
     if (loaded && Array.isArray(loaded)) return loaded;
-    // Fallback and migration for older 'tasks' key
-    const oldTasks = loadState('tasks', initialState.categories);
+    const oldTasks = loadState('tasks', initialState.categories, u);
     return (Array.isArray(oldTasks) ? oldTasks : []).map((t: any) => ({
       ...t,
       activities: t.activities || t.subtasks || []
     }));
-  });
-  
-  const [schedule, setSchedule] = useState<Record<string, ScheduleItem[]>>(() => {
-    const loaded = loadState('schedule', initialState.schedule);
-    if (!loaded || Array.isArray(loaded)) return {}; // Clear state if using old array structure or null
+  };
+
+  const loadSched = (u: string | null) => {
+    const loaded = loadState('schedule', initialState.schedule, u);
+    if (!loaded || Array.isArray(loaded)) return {};
     const migrated: Record<string, ScheduleItem[]> = {};
     Object.keys(loaded).forEach(date => {
       migrated[date] = (Array.isArray(loaded[date]) ? loaded[date] : []).map((item: any) => ({
@@ -151,28 +194,27 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
       }));
     });
     return migrated;
-  });
-  
-  const [templates, setTemplates] = useState<Template[]>(() => {
-    const loaded = loadState('templates', initialState.templates);
+  };
+
+  const loadTpls = (u: string | null) => {
+    const loaded = loadState('templates', initialState.templates, u);
     if (!Array.isArray(loaded)) return [];
     return (loaded || []).map((t: any) => ({
       ...t,
       blocks: (Array.isArray(t.blocks) ? t.blocks : []).map((b: any) => {
         let cName = b.categoryName || b.taskName;
         if (!cName && b.taskId) {
-           const oldCats = loadState('categories', null) || loadState('tasks', []);
+           const oldCats = loadState('categories', null, u) || loadState('tasks', [], u);
            const found = (Array.isArray(oldCats) ? oldCats : []).find((x: any) => x.id === Number(b.taskId));
            cName = found ? found.name : String(b.taskId);
         }
         return { ...b, categoryName: cName, activity: b.activity || b.sub || b.subtask || '' };
       })
     }));
-  });
-  
-  const [blockStatus, setBlockStatus] = useState<Record<string, Record<number, string>>>(() => loadState('blockStatus', {}));
-  const [statusUpdates, setStatusUpdates] = useState<Record<string, Record<string, CategoryStatus>>>(() => {
-    const loaded = loadState('statusUpdates', initialState.statusUpdates);
+  };
+
+  const loadUpdates = (u: string | null) => {
+    const loaded = loadState('statusUpdates', initialState.statusUpdates, u);
     if (!loaded || typeof loaded !== 'object') return {};
     const migrated: Record<string, Record<string, CategoryStatus>> = {};
     Object.keys(loaded).forEach(date => {
@@ -186,13 +228,40 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
       });
     });
     return migrated;
-  });
+  };
 
-  useEffect(() => { saveState('categories', categories); }, [categories]);
-  useEffect(() => { saveState('schedule', schedule); }, [schedule]);
-  useEffect(() => { saveState('templates', templates); }, [templates]);
-  useEffect(() => { saveState('blockStatus', blockStatus); }, [blockStatus]);
-  useEffect(() => { saveState('statusUpdates', statusUpdates); }, [statusUpdates]);
+  const [categories, setCategories] = useState<Category[]>(() => loadCats(activeUser));
+  const [schedule, setSchedule] = useState<Record<string, ScheduleItem[]>>(() => loadSched(activeUser));
+  const [templates, setTemplates] = useState<Template[]>(() => loadTpls(activeUser));
+  const [blockStatus, setBlockStatus] = useState<Record<string, Record<number, string>>>(() => loadState('blockStatus', {}, activeUser));
+  const [statusUpdates, setStatusUpdates] = useState<Record<string, Record<string, CategoryStatus>>>(() => loadUpdates(activeUser));
+
+  const loginUser = (name: string) => {
+    const uName = name.trim();
+    saveGlobalState('active_user', uName);
+    setCurrentUser(uName);
+    setCategories(loadCats(uName));
+    setSchedule(loadSched(uName));
+    setTemplates(loadTpls(uName));
+    setBlockStatus(loadState('blockStatus', {}, uName));
+    setStatusUpdates(loadUpdates(uName));
+  };
+
+  const logoutUser = () => {
+    saveGlobalState('active_user', null);
+    setCurrentUser(null);
+    setCategories([]);
+    setSchedule({});
+    setTemplates([]);
+    setBlockStatus({});
+    setStatusUpdates({});
+  };
+
+  useEffect(() => { if (currentUser) saveState('categories', categories, currentUser); }, [categories, currentUser]);
+  useEffect(() => { if (currentUser) saveState('schedule', schedule, currentUser); }, [schedule, currentUser]);
+  useEffect(() => { if (currentUser) saveState('templates', templates, currentUser); }, [templates, currentUser]);
+  useEffect(() => { if (currentUser) saveState('blockStatus', blockStatus, currentUser); }, [blockStatus, currentUser]);
+  useEffect(() => { if (currentUser) saveState('statusUpdates', statusUpdates, currentUser); }, [statusUpdates, currentUser]);
 
   const addCategory = (category: Omit<Category, 'id'>) => {
     if (categories.some(t => t.name.toLowerCase() === category.name.toLowerCase())) return;
@@ -284,7 +353,38 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const deleteTemplate = (id: string) => {
+    const tplToDelete = templates.find(t => t.id === id);
     setTemplates(prev => prev.filter(t => t.id !== id));
+
+    if (tplToDelete) {
+      setSchedule(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(date => {
+          const daySched = next[date];
+          if (daySched && daySched.length > 0 && daySched.length === tplToDelete.blocks.length) {
+            const isMatch = tplToDelete.blocks.every(tb => 
+              daySched.some(ds => ds.start === tb.start && ds.end === tb.end && ds.categoryName === tb.categoryName)
+            );
+            if (isMatch) delete next[date];
+          }
+        });
+        return next;
+      });
+      
+      setStatusUpdates(prev => {
+        const next = { ...prev };
+        Object.keys(schedule).forEach(date => {
+          const daySched = schedule[date];
+          if (daySched && daySched.length > 0 && daySched.length === tplToDelete.blocks.length) {
+            const isMatch = tplToDelete.blocks.every(tb => 
+              daySched.some(ds => ds.start === tb.start && ds.end === tb.end && ds.categoryName === tb.categoryName)
+            );
+            if (isMatch) delete next[date];
+          }
+        });
+        return next;
+      });
+    }
   };
 
   const assignTemplate = (date: string, templateId: string) => {
@@ -314,6 +414,14 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
       next[date] = newItems.sort((a, b) => a.start.localeCompare(b.start));
       return next;
     });
+
+    if (!templateId || templateId === 'rest') {
+      setStatusUpdates(prev => {
+        const next = { ...prev };
+        delete next[date];
+        return next;
+      });
+    }
   };
 
   const cycleBlockStatus = (date: string, itemId: number) => {
@@ -387,6 +495,7 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
   return (
     <TrackerContext.Provider value={{
       categories, schedule, templates, blockStatus, statusUpdates,
+      currentUser, loginUser, logoutUser,
       addCategory, addActivity, removeActivity,
       removeCategory, updateCategoryName,
       addSchedule, addTemplate, deleteTemplate, assignTemplate,
