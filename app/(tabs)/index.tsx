@@ -1,5 +1,4 @@
-import { useTrackerContext } from '@/app/context/TrackerContext';
-import { trackerTheme } from '@/constants/trackerTheme';
+import { useTrackerContext, useTrackerTheme } from '@/app/context/TrackerContext';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -31,7 +30,9 @@ const getMonthDays = (currentDate: Date) => {
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { categories, statusUpdates, schedule, currentUser, logoutUser } = useTrackerContext();
+  const { categories, statusUpdates, schedule, templates, blockStatus, currentUser, logoutUser } = useTrackerContext();
+  const trackerTheme = useTrackerTheme();
+  const styles = getStyles(trackerTheme);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
   const today = new Date();
@@ -178,19 +179,21 @@ export default function DashboardScreen() {
   const reportSortedCategories = Object.entries(reportCategoriesStats).sort((a, b) => b[1].scheduled - a[1].scheduled).filter(t => t[1].scheduled > 0 || t[1].actual > 0);
 
   return (
-    <ScrollView style={[styles.container, { paddingTop: insets.top }]} contentContainerStyle={{ paddingBottom: 100 }}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Greeting */}
       <View style={styles.greetingBanner}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
             <Text style={styles.greeting}>{greeting}</Text>
-            <Text style={styles.greetingName}>{currentUser || 'User'}</Text>
+            <Text style={styles.greetingName}>{currentUser?.name || 'User'}</Text>
           </View>
           <TouchableOpacity onPress={handleSwitchProfile} style={styles.switchBtn}>
             <Text style={styles.switchText}>Switch Profile</Text>
           </TouchableOpacity>
         </View>
       </View>
+
+      <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
 
       {/* Period Tabs */}
       <View style={styles.periodTabsContainer}>
@@ -210,19 +213,19 @@ export default function DashboardScreen() {
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Completion</Text>
           <Text style={[styles.metricVal, { color: trackerTheme.colors.accent2 }]}>{overallProgress}%</Text>
-          <Text style={styles.metricSub}>{totalActual.toFixed(1)} of {totalSched.toFixed(1)}h logged</Text>
+          <Text style={styles.metricSub}>{totalActual.toFixed(2)} of {totalSched.toFixed(2)}h logged</Text>
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Active Hours</Text>
-          <Text style={[styles.metricVal, { color: trackerTheme.colors.accent }]}>{totalActual.toFixed(1)}h</Text>
-          <Text style={styles.metricSub}>of {totalSched.toFixed(1)}h scheduled</Text>
+          <Text style={[styles.metricVal, { color: trackerTheme.colors.accent }]}>{totalActual.toFixed(2)}h</Text>
+          <Text style={styles.metricSub}>of {totalSched.toFixed(2)}h scheduled</Text>
         </View>
         
         {topCategories[0] ? (
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>{topCategories[0][1].icon} {topCategories[0][0]}</Text>
-            <Text style={[styles.metricVal, { color: topCategories[0][1].color }]}>{topCategories[0][1].actual.toFixed(1)}h</Text>
-            <Text style={styles.metricSub}>Target: {topCategories[0][1].scheduled.toFixed(1)}h</Text>
+            <Text style={[styles.metricVal, { color: topCategories[0][1].color }]}>{topCategories[0][1].actual.toFixed(2)}h</Text>
+            <Text style={styles.metricSub}>Target: {topCategories[0][1].scheduled.toFixed(2)}h</Text>
           </View>
         ) : (
           <View style={styles.metricCard}>
@@ -234,8 +237,8 @@ export default function DashboardScreen() {
         {topCategories[1] ? (
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>{topCategories[1][1].icon} {topCategories[1][0]}</Text>
-            <Text style={[styles.metricVal, { color: topCategories[1][1].color }]}>{topCategories[1][1].actual.toFixed(1)}h</Text>
-            <Text style={styles.metricSub}>Target: {topCategories[1][1].scheduled.toFixed(1)}h</Text>
+            <Text style={[styles.metricVal, { color: topCategories[1][1].color }]}>{topCategories[1][1].actual.toFixed(2)}h</Text>
+            <Text style={styles.metricSub}>Target: {topCategories[1][1].scheduled.toFixed(2)}h</Text>
           </View>
         ) : (
            <View style={styles.metricCard}>
@@ -347,7 +350,7 @@ export default function DashboardScreen() {
                 <View style={styles.hoursBar}>
                   <View style={[styles.hoursFill, { width: `${progress}%`, backgroundColor: cat[1].color }]} />
                 </View>
-                <Text style={[styles.hoursVal, { color: cat[1].color }]}>{cat[1].actual.toFixed(1)}/{cat[1].scheduled.toFixed(1)}h</Text>
+              <Text style={[styles.hoursVal, { color: cat[1].color }]}>{cat[1].actual.toFixed(2)}/{cat[1].scheduled.toFixed(2)}h</Text>
               </View>
             );
           })}
@@ -360,7 +363,7 @@ export default function DashboardScreen() {
         <View style={styles.breakdownCard}>
           <View style={styles.breakdownHeader}>
             <Text style={[styles.breakdownHeaderText, { flex: 1 }]}>Category</Text>
-            <Text style={[styles.breakdownHeaderText, { width: 60, textAlign: 'right' }]}>Sched</Text>
+            <Text style={[styles.breakdownHeaderText, { width: 75, textAlign: 'right' }]}>Schedule</Text>
             <Text style={[styles.breakdownHeaderText, { width: 60, textAlign: 'right' }]}>Done</Text>
           </View>
           {sortedCategories.length === 0 && <Text style={{ color: trackerTheme.colors.text3, fontSize: 12, paddingVertical: 10 }}>No category data available.</Text>}
@@ -370,8 +373,8 @@ export default function DashboardScreen() {
                 <Text style={{ fontSize: 14 }}>{cat[1].icon}</Text>
                 <Text style={styles.breakdownName} numberOfLines={1}>{cat[0]}</Text>
               </View>
-              <Text style={[styles.breakdownVal, { width: 60 }]}>{cat[1].scheduled.toFixed(1)}h</Text>
-              <Text style={[styles.breakdownVal, { width: 60, color: cat[1].color }]}>{cat[1].actual.toFixed(1)}h</Text>
+            <Text style={[styles.breakdownVal, { width: 75 }]}>{cat[1].scheduled.toFixed(2)}h</Text>
+            <Text style={[styles.breakdownVal, { width: 60, color: cat[1].color }]}>{cat[1].actual.toFixed(2)}h</Text>
             </View>
           ))}
         </View>
@@ -405,7 +408,7 @@ export default function DashboardScreen() {
         <View style={styles.breakdownCard}>
           <View style={styles.breakdownHeader}>
             <Text style={[styles.breakdownHeaderText, { flex: 1 }]}>Category</Text>
-            <Text style={[styles.breakdownHeaderText, { width: 60, textAlign: 'right' }]}>Sched</Text>
+            <Text style={[styles.breakdownHeaderText, { width: 75, textAlign: 'right' }]}>Schedule</Text>
             <Text style={[styles.breakdownHeaderText, { width: 60, textAlign: 'right' }]}>Done</Text>
           </View>
           {reportSortedCategories.length === 0 && <Text style={{ color: trackerTheme.colors.text3, fontSize: 12, paddingVertical: 10 }}>No category data available for this date.</Text>}
@@ -415,81 +418,67 @@ export default function DashboardScreen() {
                 <Text style={{ fontSize: 14 }}>{cat[1].icon}</Text>
                 <Text style={styles.breakdownName} numberOfLines={1}>{cat[0]}</Text>
               </View>
-              <Text style={[styles.breakdownVal, { width: 60 }]}>{cat[1].scheduled.toFixed(1)}h</Text>
+              <Text style={[styles.breakdownVal, { width: 75 }]}>{cat[1].scheduled.toFixed(1)}h</Text>
               <Text style={[styles.breakdownVal, { width: 60, color: cat[1].color }]}>{cat[1].actual.toFixed(1)}h</Text>
             </View>
           ))}
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (trackerTheme: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: trackerTheme.colors.bg },
-  greetingBanner: { padding: 20, paddingTop: 10, paddingBottom: 4 },
-  greeting: { fontSize: 13, color: trackerTheme.colors.text2 },
-  greetingName: { fontSize: 26, fontWeight: '800', color: trackerTheme.colors.text, letterSpacing: -0.5, marginTop: 2 },
-  switchBtn: { backgroundColor: trackerTheme.colors.surface2, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: trackerTheme.colors.border },
-  switchText: { fontSize: 12, fontWeight: '600', color: trackerTheme.colors.text2 },
-  periodTabsContainer: { paddingHorizontal: 20, paddingVertical: 12 },
-  periodTabs: { flexDirection: 'row', gap: 6 },
-  periodTab: { flex: 1, padding: 8, alignItems: 'center', borderRadius: trackerTheme.radius.sm, borderWidth: 1, borderColor: trackerTheme.colors.border },
-  periodTabActive: { backgroundColor: trackerTheme.colors.accent, borderColor: trackerTheme.colors.accent },
-  periodTabText: { fontSize: 12, fontWeight: '600', color: trackerTheme.colors.text2 },
-  periodTabTextActive: { color: 'white' },
-  dashGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, gap: 10, paddingBottom: 16 },
-  metricCard: { width: (width - 50) / 2, backgroundColor: trackerTheme.colors.surface, borderRadius: trackerTheme.radius.lg, padding: 14, borderWidth: 1, borderColor: trackerTheme.colors.border },
-  metricLabel: { fontSize: 11, color: trackerTheme.colors.text2, fontWeight: '500', marginBottom: 6 },
-  metricVal: { fontSize: 24, fontWeight: '700' },
-  metricSub: { fontSize: 11, color: trackerTheme.colors.text3, marginTop: 2 },
-  metricTrend: { fontSize: 11, fontWeight: '600', marginTop: 4 },
-  trendUp: { color: trackerTheme.colors.accent2 },
-  trendDown: { color: trackerTheme.colors.accent3 },
-  section: { paddingHorizontal: 20, paddingBottom: 16 },
-  sectionTitle: { fontSize: 12, fontWeight: '600', color: trackerTheme.colors.text3, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 },
-  chartContainer: { gap: 6 },
-  barChart: { flexDirection: 'row', alignItems: 'flex-end', height: 90, gap: 6 },
-  chartDays: { flexDirection: 'row', gap: 6 },
-  barCol: { flex: 1, alignItems: 'center' },
-  bar: { width: '100%', borderTopLeftRadius: 4, borderTopRightRadius: 4, minHeight: 4 },
-  barVal: { fontSize: 9, color: trackerTheme.colors.text2, marginBottom: 4 },
-  barDay: { fontSize: 10 },
-  ringContainer: { alignItems: 'center', paddingVertical: 8, paddingBottom: 16 },
-  legendRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 10, paddingHorizontal: 20, paddingBottom: 16 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { fontSize: 11, color: trackerTheme.colors.text2 },
-  highlightCard: { backgroundColor: trackerTheme.colors.surface, borderRadius: trackerTheme.radius.lg, padding: 14, borderWidth: 1, borderColor: trackerTheme.colors.border, marginBottom: 8 },
-  highlightSub: { fontSize: 13, color: trackerTheme.colors.text2, marginBottom: 8 },
-  hoursRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  hoursLabel: { fontSize: 12, color: trackerTheme.colors.text2, width: 65 },
-  hoursBar: { flex: 1, height: 6, backgroundColor: trackerTheme.colors.surface3, borderRadius: 3, overflow: 'hidden' },
-  hoursFill: { height: '100%', borderRadius: 3 },
-  hoursVal: { fontSize: 12, fontWeight: '600', width: 40, textAlign: 'right' },
-  breakdownCard: { backgroundColor: trackerTheme.colors.surface, borderRadius: trackerTheme.radius.lg, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: trackerTheme.colors.border },
-  breakdownHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: trackerTheme.colors.border, paddingVertical: 8, marginBottom: 4 },
-  breakdownHeaderText: { fontSize: 11, fontWeight: '600', color: trackerTheme.colors.text3, textTransform: 'uppercase' },
-  breakdownRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: trackerTheme.colors.border },
-  breakdownName: { fontSize: 14, fontWeight: '500', color: trackerTheme.colors.text },
-  breakdownVal: { fontSize: 14, fontWeight: '600', textAlign: 'right', color: trackerTheme.colors.text2 },
-  dateStrip: { paddingBottom: 12, paddingTop: 4 },
-  dateCell: { width: 44, height: 56, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: trackerTheme.colors.border, backgroundColor: trackerTheme.colors.surface },
+  greetingBanner: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16 },
+  greeting: { fontSize: 24, fontWeight: '700', color: trackerTheme.colors.text },
+  greetingName: { fontSize: 16, color: trackerTheme.colors.text2 },
+  switchBtn: { backgroundColor: trackerTheme.colors.surface2, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  switchText: { fontSize: 12, fontWeight: '600', color: trackerTheme.colors.text },
+  periodTabsContainer: { paddingHorizontal: 20, marginBottom: 16 },
+  periodTabs: { flexDirection: 'row', backgroundColor: trackerTheme.colors.surface2, borderRadius: 8, padding: 4 },
+  periodTab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
+  periodTabActive: { backgroundColor: trackerTheme.colors.surface },
+  periodTabText: { fontSize: 13, fontWeight: '600', color: trackerTheme.colors.text2 },
+  periodTabTextActive: { color: trackerTheme.colors.text },
+  dashGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 20, marginBottom: 20 },
+  metricCard: { width: (width - 52) / 2, backgroundColor: trackerTheme.colors.surface, padding: 16, borderRadius: trackerTheme.radius.lg, borderWidth: 1, borderColor: trackerTheme.colors.border },
+  metricLabel: { fontSize: 12, color: trackerTheme.colors.text2, marginBottom: 8, fontWeight: '600' },
+  metricVal: { fontSize: 24, fontWeight: '800', marginBottom: 4 },
+  metricSub: { fontSize: 11, color: trackerTheme.colors.text3 },
+  section: { paddingHorizontal: 20, marginBottom: 24 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: trackerTheme.colors.text, marginBottom: 12 },
+  highlightCard: { backgroundColor: trackerTheme.colors.surface, padding: 16, borderRadius: trackerTheme.radius.lg, borderWidth: 1, borderColor: trackerTheme.colors.border },
+  highlightSub: { fontSize: 12, color: trackerTheme.colors.text2, marginBottom: 12 },
+  hoursRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  hoursLabel: { width: 80, fontSize: 13, color: trackerTheme.colors.text, fontWeight: '500' },
+  hoursBar: { flex: 1, height: 8, backgroundColor: trackerTheme.colors.surface2, borderRadius: 4, marginHorizontal: 8, overflow: 'hidden' },
+  hoursFill: { height: '100%', borderRadius: 4 },
+  hoursVal: { width: 70, textAlign: 'right', fontSize: 12, fontWeight: '600' },
+  breakdownCard: { backgroundColor: trackerTheme.colors.surface, padding: 16, borderRadius: trackerTheme.radius.lg, borderWidth: 1, borderColor: trackerTheme.colors.border },
+  breakdownHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: trackerTheme.colors.border, paddingBottom: 8, marginBottom: 8 },
+  breakdownHeaderText: { fontSize: 12, color: trackerTheme.colors.text2, fontWeight: '600' },
+  breakdownRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: trackerTheme.colors.surface2 },
+  breakdownName: { fontSize: 14, color: trackerTheme.colors.text, fontWeight: '500' },
+  breakdownVal: { fontSize: 13, fontWeight: '600', color: trackerTheme.colors.text, textAlign: 'right' },
+  dateStrip: { marginBottom: 16 },
+  dateCell: { width: 46, height: 62, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: trackerTheme.colors.border, backgroundColor: trackerTheme.colors.surface, marginRight: 8 },
   dateCellToday: { backgroundColor: trackerTheme.colors.accent, borderColor: trackerTheme.colors.accent },
-  dateCellSel: { borderColor: trackerTheme.colors.accent, backgroundColor: 'rgba(124,109,237,.15)' },
-  dateWd: { fontSize: 10, color: trackerTheme.colors.text3, fontWeight: '500' },
+  dateCellSel: { borderColor: trackerTheme.colors.accent, backgroundColor: trackerTheme.colors.surface2 },
+  dateWd: { fontSize: 10, color: trackerTheme.colors.text3, fontWeight: '500', marginBottom: 2 },
   dateWdToday: { color: 'rgba(255,255,255,0.7)' },
-  dateNum: { fontSize: 15, fontWeight: '700', color: trackerTheme.colors.text },
+  dateNum: { fontSize: 16, fontWeight: '700', color: trackerTheme.colors.text },
   dateNumToday: { color: 'white' },
-  calendarCard: { backgroundColor: trackerTheme.colors.surface, borderRadius: trackerTheme.radius.lg, padding: 16, borderWidth: 1, borderColor: trackerTheme.colors.border },
-  calendarHeader: { flexDirection: 'row', marginBottom: 8 },
-  calDayText: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '600', color: trackerTheme.colors.text3, textTransform: 'uppercase' },
-  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  calCellEmpty: { width: '14.28%', height: 40 },
-  calCell: { width: '14.28%', height: 40, justifyContent: 'center', alignItems: 'center', borderRadius: 8, marginVertical: 2 },
+  calendarCard: { backgroundColor: trackerTheme.colors.surface, padding: 16, borderRadius: trackerTheme.radius.lg, borderWidth: 1, borderColor: trackerTheme.colors.border },
+  calendarHeader: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 },
+  calDayText: { fontSize: 12, color: trackerTheme.colors.text2, fontWeight: '600', width: 30, textAlign: 'center' },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-around' },
+  calCellEmpty: { width: 30, height: 30 },
+  calCell: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   calCellToday: { backgroundColor: trackerTheme.colors.accent },
-  calCellSel: { backgroundColor: 'rgba(124,109,237,.15)', borderWidth: 1, borderColor: trackerTheme.colors.accent },
-  calCellText: { fontSize: 14, color: trackerTheme.colors.text, fontWeight: '500' },
+  calCellSel: { borderWidth: 1, borderColor: trackerTheme.colors.accent },
+  calCellText: { fontSize: 13, color: trackerTheme.colors.text, fontWeight: '500' },
   calCellTextToday: { color: 'white', fontWeight: '700' },
-  calDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: trackerTheme.colors.accent2, marginTop: 2 },
+  calDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: trackerTheme.colors.accent, marginTop: 2 }
 });

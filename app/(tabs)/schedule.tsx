@@ -1,5 +1,4 @@
-import { TemplateBlock, useTrackerContext } from '@/app/context/TrackerContext';
-import { trackerTheme } from '@/constants/trackerTheme';
+import { TemplateBlock, useTrackerContext, useTrackerTheme } from '@/app/context/TrackerContext';
 import React, { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,6 +28,8 @@ function addOneHour(timeStr: string) {
 export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
   const { categories, schedule, templates, addTemplate, deleteTemplate, assignTemplate, cycleBlockStatus } = useTrackerContext();
+  const trackerTheme = useTrackerTheme();
+  const styles = getStyles(trackerTheme);
   
   const [activeTab, setActiveTab] = useState<'templates' | 'calendar'>('templates');
   
@@ -153,7 +154,7 @@ export default function ScheduleScreen() {
     const weekendTpl = templates.find(t => normalize(t.name).includes('weekend'));
     
     if (!weekdayTpl || !weekendTpl) {
-      setAutoFillMsg({ text: 'Error: Aapko pehle 2 templates banane honge. Ek ke naam me "Weekday" aur dusre me "Weekend" likha hona zaroori hai.', isError: true });
+      setAutoFillMsg({ text: 'Error: You must create at least 2 templates first. One must have "Weekday" and the other "Weekend" in its name.', isError: true });
       return;
     }
 
@@ -477,7 +478,7 @@ export default function ScheduleScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (trackerTheme: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: trackerTheme.colors.bg },
   pageHeader: { paddingHorizontal: 20, paddingVertical: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   pageTitle: { fontSize: 22, fontWeight: '700', color: trackerTheme.colors.text, letterSpacing: -0.5 },

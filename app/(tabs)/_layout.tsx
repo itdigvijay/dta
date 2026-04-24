@@ -1,13 +1,15 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 
+import { useTrackerTheme } from '@/app/context/TrackerContext';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { trackerTheme } from '@/constants/trackerTheme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const trackerTheme = useTrackerTheme();
 
   return (
     <Tabs
@@ -51,6 +53,13 @@ export default function TabLayout() {
         options={{
           title: 'Update',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="checkmark.circle.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="manual"
+        options={{
+          title: 'Guide',
+          tabBarIcon: ({ color }) => <Ionicons size={28} name="book" color={color} />,
         }}
       />
     </Tabs>

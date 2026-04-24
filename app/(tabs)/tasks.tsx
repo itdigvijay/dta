@@ -1,5 +1,4 @@
-import { useTrackerContext } from '@/app/context/TrackerContext';
-import { trackerTheme } from '@/constants/trackerTheme';
+import { useTrackerContext, useTrackerTheme } from '@/app/context/TrackerContext';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function TasksScreen() {
   const insets = useSafeAreaInsets();
   const { categories, statusUpdates, schedule, addCategory, addActivity, removeActivity, removeCategory, updateCategoryName } = useTrackerContext();
+  const trackerTheme = useTrackerTheme();
+  const styles = getStyles(trackerTheme);
   const [modalVisible, setModalVisible] = useState(false);
   const [categoryModalVisible, setCategoryModalVisible] = useState<number | null>(null);
 
@@ -17,8 +18,7 @@ export default function TasksScreen() {
 
   const [newActivityName, setNewActivityName] = useState('');
 
-  const colors = ['#5BC4A0', '#7C6DED', '#F06B6B', '#F0A83E', '#378ADD'];
-  const icons = ['📚', '🌙', '🏋', '💼', '🎵', '🍎', '🧘', '💡'];
+  const colors = ['#5BC4A0', '#7C6DED', '#F06B6B', '#F0A83E', '#378ADD', '#E85DC0', '#4CAF50', '#FF7043'];
 
   const handleAddCategory = () => {
     if (!newCategoryName.trim()) return;
@@ -138,13 +138,14 @@ export default function TasksScreen() {
               <TextInput style={styles.inputField} placeholder="e.g. Reading, Meditation..." placeholderTextColor={trackerTheme.colors.text3} value={newCategoryName} onChangeText={setNewCategoryName} />
             </View>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Icon</Text>
-              <View style={styles.colorOptions}>
-                {icons.map(ic => (
-                  <TouchableOpacity key={ic} onPress={() => setNewCategoryIcon(ic)} style={[styles.iconOpt, newCategoryIcon === ic && { borderColor: trackerTheme.colors.accent }]}>
-                    <Text style={{ fontSize: 18 }}>{ic}</Text>
-                  </TouchableOpacity>
-                ))}
+              <Text style={styles.inputLabel}>Icon (Emoji)</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <TextInput 
+                  style={[styles.inputField, { width: 60, height: 60, borderRadius: 30, fontSize: 28, textAlign: 'center', paddingHorizontal: 0, paddingVertical: 0 }]} 
+                  value={newCategoryIcon} 
+                  onChangeText={setNewCategoryIcon} 
+                />
+                <Text style={{ color: trackerTheme.colors.text3, fontSize: 12, flex: 1, lineHeight: 18 }}>Tap the circle to use your phone's native emoji keyboard.</Text>
               </View>
             </View>
             <View style={styles.inputGroup}>
@@ -213,7 +214,7 @@ export default function TasksScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (trackerTheme: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: trackerTheme.colors.bg },
   pageHeader: { paddingHorizontal: 20, paddingVertical: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   pageTitle: { fontSize: 22, fontWeight: '700', color: trackerTheme.colors.text, letterSpacing: -0.5 },
@@ -240,7 +241,6 @@ const styles = StyleSheet.create({
   inputLabel: { fontSize: 12, color: trackerTheme.colors.text2, marginBottom: 6 },
   inputField: { width: '100%', backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, borderRadius: trackerTheme.radius.sm, paddingHorizontal: 12, paddingVertical: 10, color: trackerTheme.colors.text, fontSize: 14 },
   colorOptions: { flexDirection: 'row', gap: 8, marginTop: 6, flexWrap: 'wrap' },
-  iconOpt: { width: 36, height: 36, borderRadius: 8, backgroundColor: trackerTheme.colors.surface2, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: 'transparent' },
   colorOpt: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: 'transparent' },
   colorOptSelected: { borderColor: 'white' },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 16 },

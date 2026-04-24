@@ -1,6 +1,47 @@
 import * as SQLite from 'expo-sqlite';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
+
+export const lightTheme = {
+  colors: {
+    bg: '#F5F5F7',
+    surface: '#FFFFFF',
+    surface2: '#F2F2F7',
+    surface3: '#E5E5EA',
+    border: '#D1D1D6',
+    text: '#1C1C1E',
+    text2: '#3A3A3C',
+    text3: '#8E8E93',
+    accent: '#7C6DED',
+    accent2: '#5BC4A0',
+    accent3: '#F06B6B',
+    accent4: '#F0A83E',
+  },
+  radius: { sm: 8, md: 12, lg: 16 }
+};
+
+export const darkTheme = {
+  colors: {
+    bg: '#000000',
+    surface: '#1C1C1E',
+    surface2: '#2C2C2E',
+    surface3: '#3A3A3C',
+    border: '#38383A',
+    text: '#FFFFFF',
+    text2: '#EBEBF5',
+    text3: '#EBEBF599',
+    accent: '#9D93F1',
+    accent2: '#6EE3BD',
+    accent3: '#FF7A7A',
+    accent4: '#FFBA52',
+  },
+  radius: { sm: 8, md: 12, lg: 16 }
+};
+
+export function useTrackerTheme() {
+  const colorScheme = useColorScheme();
+  return colorScheme === 'dark' ? darkTheme : lightTheme;
+}
 
 export interface Category {
   id: number;
@@ -19,6 +60,7 @@ export interface ScheduleItem {
   activity: string;
   status: 'pending' | 'in-progress' | 'completed';
 }
+
 
 export interface TemplateBlock {
   start: string;
@@ -47,15 +89,22 @@ export interface CategoryStatus {
   activities: Record<string, StatusUpdate>;
 }
 
+export interface UserProfile {
+  id: string;
+  name: string;
+}
+
 interface TrackerContextType {
   categories: Category[];
   schedule: Record<string, ScheduleItem[]>;
   templates: Template[];
   blockStatus: Record<string, Record<number, string>>;
   statusUpdates: Record<string, Record<string, CategoryStatus>>;
-  currentUser: string | null;
-  loginUser: (name: string) => void;
+  currentUser: UserProfile | null;
+  users: UserProfile[];
+  loginUser: (user: UserProfile) => void;
   logoutUser: () => void;
+  deleteUser: (id: string) => void;
   addCategory: (category: Omit<Category, 'id'>) => void;
   addActivity: (categoryId: number, activity: string) => void;
   removeActivity: (categoryId: number, activityIndex: number) => void;
@@ -68,12 +117,24 @@ interface TrackerContextType {
   cycleBlockStatus: (date: string, itemId: number) => void;
   updateStatus: (date: string, categoryName: string, activity: string | undefined, status: 'pending' | 'partial' | 'completed', scheduledOverride?: number) => void;
   updateStatusHours: (date: string, categoryName: string, activity: string | undefined, hours: number, scheduledOverride?: number) => void;
+  importUserData: (data: any) => void;
+  exportProfile: (userId: string) => any;
+  exportAllProfiles: () => any;
+  importProfile: (userId: string, data: any, overrideName?: string) => void;
+  saveBackup: (name: string, data: string) => void;
+  getBackups: () => string[];
+  getBackupData: (name: string) => string | null;
+  deleteBackup: (name: string) => void;
 }
 
+const defaultCategories: Category[] = [];
+
+const defaultTemplates: Template[] = [];
+
 const initialState = {
-  categories: [] as Category[],
+  categories: defaultCategories,
   schedule: {} as Record<string, ScheduleItem[]>,
-  templates: [] as Template[],
+  templates: defaultTemplates,
   statusUpdates: {} as Record<string, Record<string, CategoryStatus>>
 };
 
@@ -127,14 +188,21 @@ const saveGlobalState = (key: string, value: any) => {
   } catch (e) {}
 };
 
-const loadState = (key: string, defaultVal: any, username: string | null) => {
-  if (!username) return defaultVal;
-  const userKey = `${username}_${key}`;
+const loadState = (key: string, defaultVal: any, userId: string | null) => {
+  if (!userId) return defaultVal;
+  const userKey = `${userId}_${key}`;
   if (Platform.OS === 'web') {
     try {
       if (typeof window !== 'undefined') {
         const val = window.localStorage.getItem(`tracker_${userKey}`);
         if (val) return JSON.parse(val);
+        
+        const usersVal = window.localStorage.getItem('tracker_global_users');
+        const globalUsers = usersVal ? JSON.parse(usersVal) : [];
+        const firstUser = globalUsers[0];
+        const firstUserId = typeof firstUser === 'string' ? firstUser : firstUser?.id;
+        if (globalUsers.length > 0 && firstUserId !== userId) return defaultVal;
+
         const legacyVal = window.localStorage.getItem(`tracker_${key}`);
         return legacyVal ? JSON.parse(legacyVal) : defaultVal;
       }
@@ -146,6 +214,12 @@ const loadState = (key: string, defaultVal: any, username: string | null) => {
     if (result) return JSON.parse(result.value);
     
     // Give legacy data to the first profile created so no data is lost!
+    const usersResult = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', ['global_users']);
+    const globalUsers = usersResult ? JSON.parse(usersResult.value) : [];
+    const firstUser = globalUsers[0];
+    const firstUserId = typeof firstUser === 'string' ? firstUser : firstUser?.id;
+    if (globalUsers.length > 0 && firstUserId !== userId) return defaultVal;
+
     const legacyResult = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [key]);
     return legacyResult ? JSON.parse(legacyResult.value) : defaultVal;
   } catch (e) {
@@ -153,9 +227,9 @@ const loadState = (key: string, defaultVal: any, username: string | null) => {
   }
 };
 
-const saveState = (key: string, value: any, username: string | null) => {
-  if (!username) return;
-  const userKey = `${username}_${key}`;
+const saveState = (key: string, value: any, userId: string | null) => {
+  if (!userId) return;
+  const userKey = `${userId}_${key}`;
   if (Platform.OS === 'web') {
     try {
       if (typeof window !== 'undefined') window.localStorage.setItem(`tracker_${userKey}`, JSON.stringify(value));
@@ -169,25 +243,27 @@ const saveState = (key: string, value: any, username: string | null) => {
 };
 
 export const TrackerProvider = ({ children }: { children: ReactNode }) => {
-  const activeUser = loadGlobalState('active_user', null);
-  const [currentUser, setCurrentUser] = useState<string | null>(activeUser);
+  const rawActiveUser = loadGlobalState('active_user', null);
+  const migratedActiveUser = typeof rawActiveUser === 'string' ? { id: rawActiveUser, name: rawActiveUser } : rawActiveUser;
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(migratedActiveUser);
+  
+  const rawUsers = loadGlobalState('users', []);
+  const migratedUsers = rawUsers.map((u: any) => typeof u === 'string' ? { id: u, name: u } : u);
+  const [users, setUsers] = useState<UserProfile[]>(migratedUsers);
 
-  const loadCats = (u: string | null) => {
-    const loaded = loadState('categories', null, u);
-    if (loaded && Array.isArray(loaded)) return loaded;
-    const oldTasks = loadState('tasks', initialState.categories, u);
-    return (Array.isArray(oldTasks) ? oldTasks : []).map((t: any) => ({
+  const parseCategories = (data: any) => {
+    const raw = data.categories || data.tasks || [];
+    return raw.map((t: any) => ({
       ...t,
       activities: t.activities || t.subtasks || []
     }));
   };
 
-  const loadSched = (u: string | null) => {
-    const loaded = loadState('schedule', initialState.schedule, u);
-    if (!loaded || Array.isArray(loaded)) return {};
+  const parseSchedule = (data: any) => {
+    const raw = data.schedule || {};
     const migrated: Record<string, ScheduleItem[]> = {};
-    Object.keys(loaded).forEach(date => {
-      migrated[date] = (Array.isArray(loaded[date]) ? loaded[date] : []).map((item: any) => ({
+    Object.keys(raw).forEach(date => {
+      migrated[date] = (Array.isArray(raw[date]) ? raw[date] : []).map((item: any) => ({
         ...item,
         categoryName: item.categoryName || item.taskName || '',
         activity: item.activity || item.subtask || ''
@@ -196,31 +272,28 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
     return migrated;
   };
 
-  const loadTpls = (u: string | null) => {
-    const loaded = loadState('templates', initialState.templates, u);
-    if (!Array.isArray(loaded)) return [];
-    return (loaded || []).map((t: any) => ({
+  const parseTemplates = (data: any, fallbackCats: any[] = []) => {
+    const raw = data.templates || [];
+    return raw.map((t: any) => ({
       ...t,
       blocks: (Array.isArray(t.blocks) ? t.blocks : []).map((b: any) => {
         let cName = b.categoryName || b.taskName;
         if (!cName && b.taskId) {
-           const oldCats = loadState('categories', null, u) || loadState('tasks', [], u);
-           const found = (Array.isArray(oldCats) ? oldCats : []).find((x: any) => x.id === Number(b.taskId));
+           const found = fallbackCats.find((x: any) => x.id === Number(b.taskId));
            cName = found ? found.name : String(b.taskId);
         }
-        return { ...b, categoryName: cName, activity: b.activity || b.sub || b.subtask || '' };
+        return { ...b, categoryName: cName || '', activity: b.activity || b.sub || b.subtask || '' };
       })
     }));
   };
 
-  const loadUpdates = (u: string | null) => {
-    const loaded = loadState('statusUpdates', initialState.statusUpdates, u);
-    if (!loaded || typeof loaded !== 'object') return {};
+  const parseUpdates = (data: any) => {
+    const raw = data.statusUpdates || {};
     const migrated: Record<string, Record<string, CategoryStatus>> = {};
-    Object.keys(loaded).forEach(date => {
+    Object.keys(raw).forEach(date => {
       migrated[date] = {};
-      Object.keys(loaded[date] || {}).forEach(catName => {
-        const catData = loaded[date][catName];
+      Object.keys(raw[date] || {}).forEach(catName => {
+        const catData = raw[date][catName];
         migrated[date][catName] = {
           ...catData,
           activities: catData.activities || catData.subtasks || {}
@@ -230,21 +303,50 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
     return migrated;
   };
 
-  const [categories, setCategories] = useState<Category[]>(() => loadCats(activeUser));
-  const [schedule, setSchedule] = useState<Record<string, ScheduleItem[]>>(() => loadSched(activeUser));
-  const [templates, setTemplates] = useState<Template[]>(() => loadTpls(activeUser));
-  const [blockStatus, setBlockStatus] = useState<Record<string, Record<number, string>>>(() => loadState('blockStatus', {}, activeUser));
-  const [statusUpdates, setStatusUpdates] = useState<Record<string, Record<string, CategoryStatus>>>(() => loadUpdates(activeUser));
+  const loadCats = (u: string | null) => {
+    const c = loadState('categories', null, u);
+    const t = loadState('tasks', null, u);
+    const raw = c || t || initialState.categories;
+    return parseCategories({ categories: raw });
+  };
 
-  const loginUser = (name: string) => {
-    const uName = name.trim();
-    saveGlobalState('active_user', uName);
-    setCurrentUser(uName);
-    setCategories(loadCats(uName));
-    setSchedule(loadSched(uName));
-    setTemplates(loadTpls(uName));
-    setBlockStatus(loadState('blockStatus', {}, uName));
-    setStatusUpdates(loadUpdates(uName));
+  const loadSched = (u: string | null) => {
+    return parseSchedule({ schedule: loadState('schedule', initialState.schedule, u) });
+  };
+
+  const loadTpls = (u: string | null) => {
+    const c = loadState('categories', null, u) || loadState('tasks', [], u);
+    return parseTemplates({ templates: loadState('templates', initialState.templates, u) }, Array.isArray(c) ? c : []);
+  };
+
+  const loadUpdates = (u: string | null) => {
+    return parseUpdates({ statusUpdates: loadState('statusUpdates', initialState.statusUpdates, u) });
+  };
+
+  const [categories, setCategories] = useState<Category[]>(() => loadCats(migratedActiveUser?.id || null));
+  const [schedule, setSchedule] = useState<Record<string, ScheduleItem[]>>(() => loadSched(migratedActiveUser?.id || null));
+  const [templates, setTemplates] = useState<Template[]>(() => loadTpls(migratedActiveUser?.id || null));
+  const [blockStatus, setBlockStatus] = useState<Record<string, Record<number, string>>>(() => loadState('blockStatus', {}, migratedActiveUser?.id || null));
+  const [statusUpdates, setStatusUpdates] = useState<Record<string, Record<string, CategoryStatus>>>(() => loadUpdates(migratedActiveUser?.id || null));
+
+  const loginUser = (user: UserProfile) => {
+    saveGlobalState('active_user', user);
+    setCurrentUser(user);
+    
+    setUsers(prev => {
+      if (!prev.some(u => u.id === user.id)) {
+        const next = [...prev, user];
+        saveGlobalState('users', next);
+        return next;
+      }
+      return prev;
+    });
+
+    setCategories(loadCats(user.id));
+    setSchedule(loadSched(user.id));
+    setTemplates(loadTpls(user.id));
+    setBlockStatus(loadState('blockStatus', {}, user.id));
+    setStatusUpdates(loadUpdates(user.id));
   };
 
   const logoutUser = () => {
@@ -257,11 +359,31 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
     setStatusUpdates({});
   };
 
-  useEffect(() => { if (currentUser) saveState('categories', categories, currentUser); }, [categories, currentUser]);
-  useEffect(() => { if (currentUser) saveState('schedule', schedule, currentUser); }, [schedule, currentUser]);
-  useEffect(() => { if (currentUser) saveState('templates', templates, currentUser); }, [templates, currentUser]);
-  useEffect(() => { if (currentUser) saveState('blockStatus', blockStatus, currentUser); }, [blockStatus, currentUser]);
-  useEffect(() => { if (currentUser) saveState('statusUpdates', statusUpdates, currentUser); }, [statusUpdates, currentUser]);
+  const deleteUser = (id: string) => {
+    setUsers(prev => {
+      const updatedUsers = prev.filter(u => u.id !== id);
+      saveGlobalState('users', updatedUsers);
+      return updatedUsers;
+    });
+
+    // Clean up local database for this user
+    const keysToRemove = ['categories', 'schedule', 'templates', 'blockStatus', 'statusUpdates'];
+    if (Platform.OS === 'web') {
+      try { keysToRemove.forEach(k => window.localStorage.removeItem(`tracker_${id}_${k}`)); } catch (e) {}
+    } else {
+      if (db) {
+        try {
+          keysToRemove.forEach(k => { db?.runSync('DELETE FROM app_state WHERE key = ?', [`${id}_${k}`]); });
+        } catch (e) {}
+      }
+    }
+  };
+
+  useEffect(() => { if (currentUser) saveState('categories', categories, currentUser.id); }, [categories, currentUser]);
+  useEffect(() => { if (currentUser) saveState('schedule', schedule, currentUser.id); }, [schedule, currentUser]);
+  useEffect(() => { if (currentUser) saveState('templates', templates, currentUser.id); }, [templates, currentUser]);
+  useEffect(() => { if (currentUser) saveState('blockStatus', blockStatus, currentUser.id); }, [blockStatus, currentUser]);
+  useEffect(() => { if (currentUser) saveState('statusUpdates', statusUpdates, currentUser.id); }, [statusUpdates, currentUser]);
 
   const addCategory = (category: Omit<Category, 'id'>) => {
     if (categories.some(t => t.name.toLowerCase() === category.name.toLowerCase())) return;
@@ -492,15 +614,132 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const importUserData = (data: any) => {
+    const cats = parseCategories(data);
+    setCategories(cats);
+    setSchedule(parseSchedule(data));
+    setTemplates(parseTemplates(data, cats));
+    if (data.blockStatus) setBlockStatus(data.blockStatus);
+    setStatusUpdates(parseUpdates(data));
+  };
+
+  const exportProfile = (userId: string) => {
+    const targetUser = users.find(u => u.id === userId) || { id: userId, name: 'User' };
+    return {
+      version: 1,
+      app: 'DailyTracker',
+      user: targetUser,
+      categories: loadState('categories', defaultCategories, userId),
+      schedule: loadState('schedule', {}, userId),
+      templates: loadState('templates', defaultTemplates, userId),
+      blockStatus: loadState('blockStatus', {}, userId),
+      statusUpdates: loadState('statusUpdates', {}, userId),
+    };
+  };
+
+  const exportAllProfiles = () => {
+    const profilesData = users.map(u => ({
+      user: u,
+      categories: loadState('categories', defaultCategories, u.id),
+      schedule: loadState('schedule', {}, u.id),
+      templates: loadState('templates', defaultTemplates, u.id),
+      blockStatus: loadState('blockStatus', {}, u.id),
+      statusUpdates: loadState('statusUpdates', {}, u.id),
+    }));
+    return {
+      version: 2,
+      app: 'DailyTracker',
+      type: 'multi-profile',
+      profiles: profilesData
+    };
+  };
+
+  const importProfile = (userId: string, data: any, overrideName?: string) => {
+    const newName = overrideName || data.user?.name || 'Imported User';
+    
+    setUsers(prev => {
+      let currentUsers = [...prev];
+      const existingIndex = currentUsers.findIndex(u => u.id === userId);
+      if (existingIndex >= 0) {
+        currentUsers[existingIndex] = { ...currentUsers[existingIndex], name: newName };
+      } else {
+        currentUsers.push({ id: userId, name: newName });
+      }
+      saveGlobalState('users', currentUsers);
+      return currentUsers;
+    });
+
+    const cats = parseCategories(data);
+    const sched = parseSchedule(data);
+    const tpls = parseTemplates(data, cats);
+    const updates = parseUpdates(data);
+
+    saveState('categories', cats, userId);
+    saveState('schedule', sched, userId);
+    saveState('templates', tpls, userId);
+    if (data.blockStatus) saveState('blockStatus', data.blockStatus, userId);
+    saveState('statusUpdates', updates, userId);
+
+    if (currentUser?.id === userId) {
+       setCategories(cats);
+       setSchedule(sched);
+       setTemplates(tpls);
+       if (data.blockStatus) setBlockStatus(data.blockStatus);
+       setStatusUpdates(updates);
+       setCurrentUser({ id: userId, name: newName });
+    }
+  };
+
+  const saveBackup = (name: string, data: string) => {
+    if (Platform.OS === 'web') {
+      try { window.localStorage.setItem(name, data); } catch (e) {}
+      return;
+    }
+    if (!db) return;
+    try { db.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [name, data]); } catch (e) {}
+  };
+
+  const getBackups = () => {
+    if (Platform.OS === 'web') {
+      const backups: string[] = [];
+      try {
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const key = window.localStorage.key(i);
+          if (key?.startsWith('Backup_')) backups.push(key);
+        }
+      } catch (e) {}
+      return backups;
+    }
+    if (!db) return [];
+    try {
+      const result = db.getAllSync<{key: string}>("SELECT key FROM app_state WHERE key LIKE 'Backup_%'");
+      return result.map(r => r.key);
+    } catch (e) { return []; }
+  };
+
+  const getBackupData = (name: string) => {
+    if (Platform.OS === 'web') { try { return window.localStorage.getItem(name); } catch (e) { return null; } }
+    if (!db) return null;
+    try { const result = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [name]); return result ? result.value : null; } catch (e) { return null; }
+  };
+
+  const deleteBackup = (name: string) => {
+    if (Platform.OS === 'web') { try { window.localStorage.removeItem(name); } catch (e) {} return; }
+    if (!db) return;
+    try { db.runSync('DELETE FROM app_state WHERE key = ?', [name]); } catch (e) {}
+  };
+
   return (
     <TrackerContext.Provider value={{
       categories, schedule, templates, blockStatus, statusUpdates,
-      currentUser, loginUser, logoutUser,
+      currentUser, users, loginUser, logoutUser, deleteUser,
       addCategory, addActivity, removeActivity,
       removeCategory, updateCategoryName,
       addSchedule, addTemplate, deleteTemplate, assignTemplate,
       cycleBlockStatus,
-      updateStatus, updateStatusHours
+      updateStatus, updateStatusHours, importUserData,
+      exportProfile, exportAllProfiles, importProfile,
+      saveBackup, getBackups, getBackupData, deleteBackup
     }}>
       {children}
     </TrackerContext.Provider>
@@ -514,3 +753,6 @@ export const useTrackerContext = () => {
   }
   return context;
 };
+
+// Dummy default export to satisfy Expo Router warning for files inside the /app directory
+export default function TrackerContextRoute() { return null; }
