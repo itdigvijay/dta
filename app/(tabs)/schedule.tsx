@@ -7,9 +7,11 @@ const COLORS = ['#5BC4A0', '#7C6DED', '#F06B6B', '#F0A83E', '#378ADD', '#E85DC0'
 
 function calcDur(start: string, end: string) {
   if (!start || !end) return '0m';
-  const [sh, sm] = start.split(':').map(Number);
-  let [eh, em] = end.split(':').map(Number);
-  if (eh < sh) eh += 24;
+  let sTime = start === '23:59' || start === '24:00' ? '00:00' : start;
+  let eTime = end === '23:59' || end === '24:00' ? '00:00' : end;
+  const [sh, sm] = sTime.split(':').map(Number);
+  let [eh, em] = eTime.split(':').map(Number);
+  if (eh < sh || (eh === sh && em < sm)) eh += 24;
   const mins = (eh * 60 + (em || 0)) - (sh * 60 + (sm || 0));
   if (mins <= 0) return '0m';
   const h = Math.floor(mins / 60);
@@ -44,8 +46,8 @@ export default function ScheduleScreen() {
   const [tplBlocks, setTplBlocks] = useState<TemplateBlock[]>([]);
   
   // Block Builder State
-  const [blkStart, setBlkStart] = useState('08:00');
-  const [blkEnd, setBlkEnd] = useState('09:00');
+  const [blkStart, setBlkStart] = useState('00:00');
+  const [blkEnd, setBlkEnd] = useState('01:00');
   const [blkCategoryName, setBlkCategoryName] = useState<string | null>(null);
   const [blkActivity, setBlkActivity] = useState<string>('');
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
@@ -55,8 +57,10 @@ export default function ScheduleScreen() {
 
   const currentTotalMins = tplBlocks.reduce((total, block) => {
     if (!block.start || !block.end) return total;
-    const [bsh, bsm] = block.start.split(':').map(Number);
-    let [beh, bem] = block.end.split(':').map(Number);
+    let sTime = block.start === '23:59' || block.start === '24:00' ? '00:00' : block.start;
+    let eTime = block.end === '23:59' || block.end === '24:00' ? '00:00' : block.end;
+    const [bsh, bsm] = sTime.split(':').map(Number);
+    let [beh, bem] = eTime.split(':').map(Number);
     if (beh < bsh || (beh === bsh && bem < bsm)) beh += 24;
     const duration = (beh * 60 + (bem || 0)) - (bsh * 60 + (bsm || 0));
     return total + (duration > 0 ? duration : 0);
@@ -83,8 +87,13 @@ export default function ScheduleScreen() {
       return;
     }
 
-    const [sh, sm] = blkStart.split(':').map(Number);
-    let [eh, em] = blkEnd.split(':').map(Number);
+    let sTime = blkStart.trim();
+    let eTime = blkEnd.trim();
+    if (sTime === '23:59' || sTime === '24:00') sTime = '00:00';
+    if (eTime === '23:59' || eTime === '24:00') eTime = '00:00';
+
+    const [sh, sm] = sTime.split(':').map(Number);
+    let [eh, em] = eTime.split(':').map(Number);
     if (eh < sh || (eh === sh && em < sm)) eh += 24;
     const newDur = (eh * 60 + (em || 0)) - (sh * 60 + (sm || 0));
 
@@ -94,9 +103,9 @@ export default function ScheduleScreen() {
       return;
     }
 
-    setTplBlocks([...tplBlocks, { start: blkStart, end: blkEnd, categoryName: blkCategoryName, activity: blkActivity }]);
-    setBlkStart(blkEnd);
-    setBlkEnd(addOneHour(blkEnd));
+    setTplBlocks([...tplBlocks, { start: sTime, end: eTime, categoryName: blkCategoryName, activity: blkActivity }]);
+    setBlkStart(eTime);
+    setBlkEnd(addOneHour(eTime));
   };
 
   const handleSaveTpl = () => {
@@ -131,8 +140,8 @@ export default function ScheduleScreen() {
     setAddModalVisible(false);
     setTplName('');
     setTplBlocks([]);
-    setBlkStart('08:00');
-    setBlkEnd('09:00');
+    setBlkStart('00:00');
+    setBlkEnd('01:00');
   };
 
   const daysArr = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -373,7 +382,10 @@ export default function ScheduleScreen() {
 
             <View style={{ height: 1, backgroundColor: trackerTheme.colors.border, marginVertical: 12 }} />
 
-            <Text style={[styles.sectionTitle, { marginBottom: 6 }]}>Time Blocks ({Math.floor(currentTotalMins / 60)}h {currentTotalMins % 60}m / 24h)</Text>
+            <View style={{ marginBottom: 6 }}>
+              <Text style={styles.sectionTitle}>Time Blocks ({Math.floor(currentTotalMins / 60)}h {currentTotalMins % 60}m / 24h)</Text>
+              <Text style={{ fontSize: 11, color: trackerTheme.colors.text3, marginTop: -6, marginBottom: 6 }}>You can start at any time (e.g. 22:00) to plan a night shift schedule.</Text>
+            </View>
             {tplBlocks.length > 0 && (
               <View style={{ marginBottom: 12 }}>
                 {tplBlocks.map((b, i) => {

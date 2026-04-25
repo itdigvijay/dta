@@ -1,13 +1,16 @@
 import { useTrackerContext, useTrackerTheme } from '@/app/context/TrackerContext';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { loginUser, users, deleteUser, exportAllProfiles, importProfile, saveBackup, getBackups, getBackupData, deleteBackup } = useTrackerContext();
+  const { loginUser, users, deleteUser, exportAllProfiles, importProfile } = useTrackerContext();
   const trackerTheme = useTrackerTheme();
   const styles = getStyles(trackerTheme);
   
@@ -19,8 +22,6 @@ export default function LoginScreen() {
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [pasteModalVisible, setPasteModalVisible] = useState(false);
   const [pasteText, setPasteText] = useState('');
-  const [internalBackups, setInternalBackups] = useState<string[]>([]);
-  const [internalBackupModalVisible, setInternalBackupModalVisible] = useState(false);
 
   useEffect(() => {
     if (users.length === 0) {
@@ -71,66 +72,81 @@ export default function LoginScreen() {
     router.replace('/(tabs)');
   };
 
-  const createInternalBackup = async () => {
+  const exportAndShareBackup = async () => {
     try {
       const backup = exportAllProfiles();
       const jsonStr = JSON.stringify(backup, null, 2);
       
       const date = new Date();
-      const safeName = `Backup_${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}_${String(date.getHours()).padStart(2,'0')}-${String(date.getMinutes()).padStart(2,'0')}.json`;
+      const safeName = `DailyTracker_Backup_${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}.json`;
 
-      saveBackup(safeName, jsonStr);
-      Alert.alert('Success', 'Backup saved securely inside the app database!');
-    } catch (e: any) {
-      Alert.alert('Backup Failed', e?.message || 'An error occurred while saving backup.');
-    }
-  };
+      if (Platform.OS === 'web') {
+        const blob = new (window as any).Blob([jsonStr], { type: 'application/json' });
+        const url = (window as any).URL.createObjectURL(blob);
+        const a = (document as any).createElement('a');
+        a.href = url;
+        a.download = safeName;
+        a.click();
+        (window as any).URL.revokeObjectURL(url);
+        return;
+      }
 
-  const showInternalBackups = async () => {
-    try {
-      let backups = getBackups();
-      backups.sort().reverse();
-      setInternalBackups(backups);
-      setInternalBackupModalVisible(true);
-    } catch (e) {
-      Alert.alert('Error', 'Could not load internal backups.');
-    }
-  };
-
-  const restoreInternalBackup = async (filename: string) => {
-    try {
-      const jsonStr = getBackupData(filename) || '';
-      if (!jsonStr) {
-         Alert.alert('Error', 'Backup data could not be found.');
-         return;
+      // Use cacheDirectory for temporary sharing to avoid storage permission issues
+      const dir = (FileSystem as any).cacheDirectory || (FileSystem as any).documentDirectory;
+      if (!dir) {
+        Alert.alert(
+          'File System Not Ready ⚠️', 
+          'Cannot create file. Do you want to share the backup data as text instead?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Share Text', onPress: () => Share.share({ message: jsonStr, title: 'Tracker Backup' }) }
+          ]
+        );
+        return;
       }
       
-      const data = JSON.parse(jsonStr);
+      const fileUri = `${dir}${safeName}`;
+      await FileSystem.writeAsStringAsync(fileUri, jsonStr);
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/json',
+          dialogTitle: 'Share Tracker Backup',
+          UTI: 'public.json'
+        });
+      } else {
+        Alert.alert('Error', 'Sharing is not available on this device');
+      }
+    } catch (e: any) {
+      Alert.alert('Export Failed', e?.message || 'An error occurred while exporting data.');
+    }
+  };
+
+  const processImportFile = async (targetId: string | null, targetName: string) => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: ['application/json', '*/*'], copyToCacheDirectory: true });
+      if (result.canceled) return;
+      let fileContent = '';
+      if (Platform.OS === 'web' && (result.assets[0] as any).file) {
+        fileContent = await (result.assets[0] as any).file.text();
+      } else {
+        fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
+      }
+      const data = JSON.parse(fileContent);
       if (data.app !== 'DailyTracker') {
         Alert.alert('Invalid Backup', 'This file is not a valid tracker backup.');
         return;
       }
-
-      setInternalBackupModalVisible(false);
-
+      
       if (data.type === 'multi-profile') {
         setMultiImportData(data);
-        setMultiImportTarget({ id: null, name: '' });
+        setMultiImportTarget({ id: targetId, name: targetName });
         setSelectedIndices(data.profiles.map((_: any, i: number) => i));
       } else {
-        confirmAndImport(null, data, data.user?.name || 'Imported User');
+        confirmAndImport(targetId, data, targetName || data.user?.name || 'Imported User');
       }
     } catch (e) {
-      Alert.alert('Restore Failed', 'The backup could not be read or is corrupted.');
-    }
-  };
-
-  const deleteInternalBackup = async (filename: string) => {
-    try {
-      deleteBackup(filename);
-      setInternalBackups(prev => prev.filter(f => f !== filename));
-    } catch (e) {
-      // ignore
+      Alert.alert('Import Failed', 'The selected file is invalid or corrupted.');
     }
   };
 
@@ -245,11 +261,11 @@ export default function LoginScreen() {
             </TouchableOpacity>
             
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-              <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, marginTop: 0 }]} onPress={createInternalBackup}>
-                <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text, fontSize: 14 }]}>💾 Save Backup</Text>
+              <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, marginTop: 0 }]} onPress={exportAndShareBackup}>
+                <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text, fontSize: 14 }]}>📤 Share Backup</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, marginTop: 0 }]} onPress={showInternalBackups}>
-                <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text, fontSize: 14 }]}>📂 Restore</Text>
+              <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, marginTop: 0 }]} onPress={() => processImportFile(null, '')}>
+                <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text, fontSize: 14 }]}>📂 Import JSON</Text>
               </TouchableOpacity>
             </View>
             
@@ -287,53 +303,16 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-                <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, marginTop: 0 }]} onPress={createInternalBackup}>
-                  <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text, fontSize: 14 }]}>💾 Save Backup</Text>
+                <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, marginTop: 0 }]} onPress={exportAndShareBackup}>
+                  <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text, fontSize: 14 }]}>📤 Share Backup</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, marginTop: 0 }]} onPress={showInternalBackups}>
-                  <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text, fontSize: 14 }]}>📂 Restore</Text>
+                <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border, marginTop: 0 }]} onPress={() => processImportFile(null, '')}>
+                  <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text, fontSize: 14 }]}>📂 Import JSON</Text>
                 </TouchableOpacity>
               </View>
           </View>
         )}
       </ScrollView>
-
-        {/* Internal Backups List Modal */}
-        <Modal visible={internalBackupModalVisible} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modal}>
-              <Text style={styles.modalTitle}>App Backups</Text>
-              <Text style={{ fontSize: 13, color: trackerTheme.colors.text2, marginBottom: 16, textAlign: 'center' }}>
-                Tap a backup to restore your data.
-              </Text>
-              <ScrollView style={{ maxHeight: 300, marginBottom: 10 }} showsVerticalScrollIndicator={true}>
-                {internalBackups.length === 0 ? (
-                  <Text style={{ color: trackerTheme.colors.text3, textAlign: 'center', padding: 20 }}>No backups found.</Text>
-                ) : (
-                  internalBackups.map((filename, i) => (
-                    <View key={i} style={[styles.userCard, { marginBottom: 8, paddingRight: 6 }]}>
-                      <TouchableOpacity style={{ flex: 1 }} onPress={() => restoreInternalBackup(filename)}>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: trackerTheme.colors.text }} numberOfLines={1}>
-                          {filename.replace('Backup_', '').replace('.json', '').replace(/_/g, '  ')}
-                        </Text>
-                      </TouchableOpacity>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteInternalBackup(filename)}>
-                          <Text style={styles.deleteBtnText}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.btnCancelModal} onPress={() => setInternalBackupModalVisible(false)}>
-                  <Text style={styles.btnCancelTextModal}>Close</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
 
         {/* Multi-Profile Import Modal */}
         <Modal visible={!!multiImportData} transparent animationType="fade">

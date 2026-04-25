@@ -142,20 +142,25 @@ const initialState = {
 const TrackerContext = createContext<TrackerContextType | undefined>(undefined);
 
 let db: SQLite.SQLiteDatabase | null = null;
-try {
+const getDB = () => {
+  if (db) return db;
   if (Platform.OS !== 'web') {
-    // Uses the modern synchronous Expo SQLite API (SDK 50+)
-    db = SQLite.openDatabaseSync('tracker.db');
-    db.execSync(`
-      CREATE TABLE IF NOT EXISTS app_state (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      );
-    `);
+    try {
+      const newDb = SQLite.openDatabaseSync('tracker.db');
+      newDb.execSync(`
+        CREATE TABLE IF NOT EXISTS app_state (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        );
+      `);
+      db = newDb;
+    } catch (e) {
+      console.warn('SQLite init error:', e);
+      return null;
+    }
   }
-} catch (e) {
-  console.warn('SQLite init error:', e);
-}
+  return db;
+};
 
 const loadGlobalState = (key: string, defaultVal: any) => {
   if (Platform.OS === 'web') {
@@ -166,9 +171,10 @@ const loadGlobalState = (key: string, defaultVal: any) => {
       }
     } catch (e) { return defaultVal; }
   }
-  if (!db) return defaultVal;
+  const database = getDB();
+  if (!database) return defaultVal;
   try {
-    const result = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [`global_${key}`]);
+    const result = database.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [`global_${key}`]);
     return result ? JSON.parse(result.value) : defaultVal;
   } catch (e) {
     return defaultVal;
@@ -182,9 +188,10 @@ const saveGlobalState = (key: string, value: any) => {
     } catch (e) {}
     return;
   }
-  if (!db) return;
+  const database = getDB();
+  if (!database) return;
   try {
-    db.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [`global_${key}`, JSON.stringify(value)]);
+    database.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [`global_${key}`, JSON.stringify(value)]);
   } catch (e) {}
 };
 
@@ -208,19 +215,19 @@ const loadState = (key: string, defaultVal: any, userId: string | null) => {
       }
     } catch (e) { return defaultVal; }
   }
-  if (!db) return defaultVal;
+  const database = getDB();
+  if (!database) return defaultVal;
   try {
-    const result = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [userKey]);
+    const result = database.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [userKey]);
     if (result) return JSON.parse(result.value);
     
-    // Give legacy data to the first profile created so no data is lost!
-    const usersResult = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', ['global_users']);
+    const usersResult = database.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', ['global_users']);
     const globalUsers = usersResult ? JSON.parse(usersResult.value) : [];
     const firstUser = globalUsers[0];
     const firstUserId = typeof firstUser === 'string' ? firstUser : firstUser?.id;
     if (globalUsers.length > 0 && firstUserId !== userId) return defaultVal;
 
-    const legacyResult = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [key]);
+    const legacyResult = database.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [key]);
     return legacyResult ? JSON.parse(legacyResult.value) : defaultVal;
   } catch (e) {
     return defaultVal;
@@ -236,9 +243,10 @@ const saveState = (key: string, value: any, userId: string | null) => {
     } catch (e) {}
     return;
   }
-  if (!db) return;
+  const database = getDB();
+  if (!database) return;
   try {
-    db.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [userKey, JSON.stringify(value)]);
+    database.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [userKey, JSON.stringify(value)]);
   } catch (e) {}
 };
 
@@ -371,9 +379,10 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
     if (Platform.OS === 'web') {
       try { keysToRemove.forEach(k => window.localStorage.removeItem(`tracker_${id}_${k}`)); } catch (e) {}
     } else {
-      if (db) {
+      const database = getDB();
+      if (database) {
         try {
-          keysToRemove.forEach(k => { db?.runSync('DELETE FROM app_state WHERE key = ?', [`${id}_${k}`]); });
+          keysToRemove.forEach(k => { database.runSync('DELETE FROM app_state WHERE key = ?', [`${id}_${k}`]); });
         } catch (e) {}
       }
     }
@@ -638,14 +647,26 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const exportAllProfiles = () => {
-    const profilesData = users.map(u => ({
-      user: u,
-      categories: loadState('categories', defaultCategories, u.id),
-      schedule: loadState('schedule', {}, u.id),
-      templates: loadState('templates', defaultTemplates, u.id),
-      blockStatus: loadState('blockStatus', {}, u.id),
-      statusUpdates: loadState('statusUpdates', {}, u.id),
-    }));
+    const profilesData = users.map(u => {
+      if (currentUser && currentUser.id === u.id) {
+        return {
+          user: u,
+          categories,
+          schedule,
+          templates,
+          blockStatus,
+          statusUpdates
+        };
+      }
+      return {
+        user: u,
+        categories: loadState('categories', defaultCategories, u.id),
+        schedule: loadState('schedule', {}, u.id),
+        templates: loadState('templates', defaultTemplates, u.id),
+        blockStatus: loadState('blockStatus', {}, u.id),
+        statusUpdates: loadState('statusUpdates', {}, u.id),
+      };
+    });
     return {
       version: 2,
       app: 'DailyTracker',
@@ -695,8 +716,14 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
       try { window.localStorage.setItem(name, data); } catch (e) {}
       return;
     }
-    if (!db) return;
-    try { db.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [name, data]); } catch (e) {}
+    const database = getDB();
+    if (!database) throw new Error('Database is not initialized.');
+    try { 
+      database.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [name, data]); 
+    } catch (e) {
+      console.error('Backup save error:', e);
+      throw new Error('Failed to write backup to database.');
+    }
   };
 
   const getBackups = () => {
@@ -710,23 +737,29 @@ export const TrackerProvider = ({ children }: { children: ReactNode }) => {
       } catch (e) {}
       return backups;
     }
-    if (!db) return [];
+    const database = getDB();
+    if (!database) return [];
     try {
-      const result = db.getAllSync<{key: string}>("SELECT key FROM app_state WHERE key LIKE 'Backup_%'");
-      return result.map(r => r.key);
-    } catch (e) { return []; }
+      const result = database.getAllSync<{key: string}>("SELECT key FROM app_state");
+      return result.filter(r => r.key && r.key.startsWith('Backup_')).map(r => r.key);
+    } catch (e) { 
+      console.error('Get backups error:', e);
+      return []; 
+    }
   };
 
   const getBackupData = (name: string) => {
     if (Platform.OS === 'web') { try { return window.localStorage.getItem(name); } catch (e) { return null; } }
-    if (!db) return null;
-    try { const result = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [name]); return result ? result.value : null; } catch (e) { return null; }
+  const database = getDB();
+  if (!database) return null;
+  try { const result = database.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [name]); return result ? result.value : null; } catch (e) { return null; }
   };
 
   const deleteBackup = (name: string) => {
     if (Platform.OS === 'web') { try { window.localStorage.removeItem(name); } catch (e) {} return; }
-    if (!db) return;
-    try { db.runSync('DELETE FROM app_state WHERE key = ?', [name]); } catch (e) {}
+  const database = getDB();
+  if (!database) return;
+  try { database.runSync('DELETE FROM app_state WHERE key = ?', [name]); } catch (e) {}
   };
 
   return (

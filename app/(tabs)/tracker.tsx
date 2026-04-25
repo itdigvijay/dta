@@ -5,25 +5,29 @@ import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, Te
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 let db: SQLite.SQLiteDatabase | null = null;
-try {
+const getDB = () => {
+  if (db) return db;
   if (Platform.OS !== 'web') {
-    db = SQLite.openDatabaseSync('tracker.db');
+    try {
+      db = SQLite.openDatabaseSync('tracker.db');
+    } catch (e) {
+      console.warn('SQLite init error:', e);
+    }
   }
-} catch (e) {
-  console.warn('SQLite init error:', e);
-}
+  return db;
+};
 
 const getSavedDrafts = (date: string, userId: string | null): Record<string, number> | null => {
   const key = `drafts_${userId}_${date}`;
   if (Platform.OS === 'web') {
     try {
       const val = window.localStorage.getItem(key);
-      return val ? JSON.parse(val) : null;
     } catch (e) { return null; }
   }
-  if (!db) return null;
+  const database = getDB();
+  if (!database) return null;
   try {
-    const result = db.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [key]);
+    const result = database.getFirstSync<{value: string}>('SELECT value FROM app_state WHERE key = ?', [key]);
     return result ? JSON.parse(result.value) : null;
   } catch (e) { return null; }
 };
@@ -34,8 +38,9 @@ const saveSavedDrafts = (date: string, drafts: Record<string, number>, userId: s
     try { window.localStorage.setItem(key, JSON.stringify(drafts)); } catch (e) {}
     return;
   }
-  if (!db) return;
-  try { db.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [key, JSON.stringify(drafts)]); } catch (e) {}
+  const database = getDB();
+  if (!database) return;
+  try { database.runSync('INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)', [key, JSON.stringify(drafts)]); } catch (e) {}
 };
 
 const clearSavedDrafts = (date: string, userId: string | null) => {
@@ -44,17 +49,20 @@ const clearSavedDrafts = (date: string, userId: string | null) => {
     try { window.localStorage.removeItem(key); } catch (e) {}
     return;
   }
-  if (!db) return;
-  try { db.runSync('DELETE FROM app_state WHERE key = ?', [key]); } catch (e) {}
+  const database = getDB();
+  if (!database) return;
+  try { database.runSync('DELETE FROM app_state WHERE key = ?', [key]); } catch (e) {}
 };
 
 function calcScheduledMins(blocks: {start: string, end: string, categoryName: string, activity?: string}[], categoryName: string, activity?: string) {
   let total = 0;
   blocks.forEach(b => {
     if (b.categoryName === categoryName && b.activity === activity) {
-      const [sh, sm] = b.start.split(':').map(Number);
-      let [eh, em] = b.end.split(':').map(Number);
-      if (eh < sh) eh += 24;
+      let sTime = b.start === '23:59' || b.start === '24:00' ? '00:00' : b.start;
+      let eTime = b.end === '23:59' || b.end === '24:00' ? '00:00' : b.end;
+      const [sh, sm] = sTime.split(':').map(Number);
+      let [eh, em] = eTime.split(':').map(Number);
+      if (eh < sh || (eh === sh && em < sm)) eh += 24;
       total += (eh * 60 + (em || 0)) - (sh * 60 + (sm || 0));
     }
   });
@@ -81,12 +89,11 @@ export default function UpdateScreen() {
 
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isLocked, setIsLocked] = useState(false);
 
   const [manualEntryKey, setManualEntryKey] = useState<string | null>(null);
   const [manualHours, setManualHours] = useState('');
   const [manualMins, setManualMins] = useState('');
+  const [errorData, setErrorData] = useState<{title: string, msg: string} | null>(null);
 
   const dateStrip = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today);
@@ -114,14 +121,6 @@ export default function UpdateScreen() {
 
   useEffect(() => {
     const saved = getSavedDrafts(selectedDate, currentUser?.id || null);
-    const isPast = selectedDate < todayStr;
-    const hasSubmitted = statusUpdates[selectedDate] && Object.keys(statusUpdates[selectedDate]).length > 0;
-
-    if (isPast && hasSubmitted && !saved) {
-      setIsLocked(true);
-    } else {
-      setIsLocked(false);
-    }
 
     if (saved) {
       setDrafts(saved);
@@ -146,14 +145,13 @@ export default function UpdateScreen() {
     setHasUnsavedChanges(false);
   }, [selectedDate, statusUpdates]);
 
+  const showError = (title: string, msg: string) => {
+    setErrorData({ title, msg });
+  };
+
   const handleAdjustMins = (key: string, newMins: number) => {
     if (isFutureDate) {
-      setSubmitError("Future Date: You cannot log progress for upcoming days.");
-      return;
-    }
-
-    if (isLocked) {
-      setSubmitError("Locked: Past submissions cannot be edited.");
+      showError("Future Date", "You cannot log progress for upcoming days.");
       return;
     }
 
@@ -163,7 +161,6 @@ export default function UpdateScreen() {
       return next;
     });
     setHasUnsavedChanges(true);
-    setSubmitError(null);
   };
 
   const totalScheduledMins = scheduledItems.reduce((acc, item) => acc + calcScheduledMins(daySchedule.map(s => ({ start: s.start, end: s.end, categoryName: s.categoryName, activity: s.activity })), item.categoryName, item.activity), 0);
@@ -172,15 +169,13 @@ export default function UpdateScreen() {
   const isOver = balanceMins < 0;
 
   const handleSubmitLog = () => {
-    setSubmitError(null);
-
     if (balanceMins < 0) {
-      setSubmitError(`Extra Time Logged:\nYou have logged extra time.\nYour total logged time must exactly match your scheduled ${formatMins(totalScheduledMins)}.\nPlease reduce ${formatMins(Math.abs(balanceMins))} from other activities.`);
+      showError("Extra Time Logged", `You have logged extra time.\nYour total logged time must exactly match your scheduled ${formatMins(totalScheduledMins)}.\nPlease reduce ${formatMins(Math.abs(balanceMins))} from other activities.`);
       return;
     }
     
     if (balanceMins > 0) {
-      setSubmitError(`Incomplete Log:\nYou still have ${formatMins(balanceMins)} left to log.\nYour total logged time must exactly match your scheduled ${formatMins(totalScheduledMins)}.\nPlease add ${formatMins(balanceMins)} to your activities.`);
+      showError("Incomplete Log", `You still have ${formatMins(balanceMins)} left to log.\nYour total logged time must exactly match your scheduled ${formatMins(totalScheduledMins)}.\nPlease add ${formatMins(balanceMins)} to your activities.`);
       return;
     }
 
@@ -222,126 +217,140 @@ export default function UpdateScreen() {
         </ScrollView>
       </View>
 
-      <ScrollView contentContainerStyle={styles.section}>
-        {isRest ? (
-          <View style={styles.emptyState}>
-            <Text style={{ fontSize: 40, marginBottom: 10 }}>🛌</Text>
-            <Text style={styles.emptyTitle}>Rest Day</Text>
-            <Text style={styles.emptySub}>No tasks to track today.</Text>
-          </View>
-        ) : isUnassigned ? (
-          <View style={styles.emptyState}>
-            <Text style={{ fontSize: 40, marginBottom: 10 }}>📅</Text>
-            <Text style={styles.emptyTitle}>No Template Assigned</Text>
-            <Text style={styles.emptySub}>Assign a template in the Schedule tab.</Text>
-          </View>
-        ) : scheduledItems.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptySub}>No categories found in this template.</Text>
-          </View>
-        ) : (
-          <>
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Daily Balance</Text>
-              <Text style={styles.summaryHint}>Adjust time if you spent more or less than planned.</Text>
-              <View style={styles.summaryGrid}>
-                <View style={styles.sumCol}>
-                  <Text style={styles.sumLbl}>Scheduled</Text>
-                  <Text style={styles.sumVal}>{formatMins(totalScheduledMins)}</Text>
-                </View>
-                <View style={styles.sumCol}>
-                  <Text style={styles.sumLbl}>Logged</Text>
-                  <Text style={[styles.sumVal, isOver && { color: trackerTheme.colors.accent3 }]}>{formatMins(totalLoggedMins)}</Text>
-                </View>
-                <View style={[styles.sumCol, { borderRightWidth: 0 }]}>
-                  <Text style={styles.sumLbl}>Difference</Text>
-                  <Text style={[styles.sumVal, isOver ? { color: trackerTheme.colors.accent3 } : { color: trackerTheme.colors.accent2 }]}>
-                    {isOver ? `+${formatMins(Math.abs(balanceMins))} Over` : `${formatMins(balanceMins)} Left`}
-                  </Text>
+        <ScrollView contentContainerStyle={styles.section}>
+          {isRest ? (
+            <View style={styles.emptyState}>
+              <Text style={{ fontSize: 40, marginBottom: 10 }}>🛌</Text>
+              <Text style={styles.emptyTitle}>Rest Day</Text>
+              <Text style={styles.emptySub}>No tasks to track today.</Text>
+            </View>
+          ) : isUnassigned ? (
+            <View style={styles.emptyState}>
+              <Text style={{ fontSize: 40, marginBottom: 10 }}>📅</Text>
+              <Text style={styles.emptyTitle}>No Template Assigned</Text>
+              <Text style={styles.emptySub}>Assign a template in the Schedule tab.</Text>
+            </View>
+          ) : scheduledItems.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptySub}>No categories found in this template.</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryTitle}>Daily Balance</Text>
+                <Text style={styles.summaryHint}>Adjust time if you spent more or less than planned.</Text>
+                <View style={styles.summaryGrid}>
+                  <View style={styles.sumCol}>
+                    <Text style={styles.sumLbl}>Scheduled</Text>
+                    <Text style={styles.sumVal}>{formatMins(totalScheduledMins)}</Text>
+                  </View>
+                  <View style={styles.sumCol}>
+                    <Text style={styles.sumLbl}>Logged</Text>
+                    <Text style={[styles.sumVal, isOver && { color: trackerTheme.colors.accent3 }]}>{formatMins(totalLoggedMins)}</Text>
+                  </View>
+                  <View style={[styles.sumCol, { borderRightWidth: 0 }]}>
+                    <Text style={styles.sumLbl}>Difference</Text>
+                    <Text style={[styles.sumVal, isOver ? { color: trackerTheme.colors.accent3 } : { color: trackerTheme.colors.accent2 }]}>
+                      {isOver ? `+${formatMins(Math.abs(balanceMins))} Over` : `${formatMins(balanceMins)} Left`}
+                    </Text>
+                  </View>
                 </View>
               </View>
-            </View>
 
-            {scheduledItems.map(item => {
-              const key = `${item.categoryName}::${item.activity || ''}`;
-              const schedMins = calcScheduledMins(daySchedule.map(s => ({ start: s.start, end: s.end, categoryName: s.categoryName, activity: s.activity })), item.categoryName, item.activity);
-              const actualMins = drafts[key] || 0;
-              
-              const status = actualMins >= schedMins ? 'COMPLETED' : actualMins > 0 ? 'IN PROGRESS' : 'PENDING';
-              const statusColor = actualMins >= schedMins ? trackerTheme.colors.accent2 : actualMins > 0 ? trackerTheme.colors.accent4 : trackerTheme.colors.text3;
+              {scheduledItems.map(item => {
+                const key = `${item.categoryName}::${item.activity || ''}`;
+                const schedMins = calcScheduledMins(daySchedule.map(s => ({ start: s.start, end: s.end, categoryName: s.categoryName, activity: s.activity })), item.categoryName, item.activity);
+                const actualMins = drafts[key] || 0;
+                
+                const status = actualMins >= schedMins ? 'COMPLETED' : actualMins > 0 ? 'IN PROGRESS' : 'PENDING';
+                const statusColor = actualMins >= schedMins ? trackerTheme.colors.accent2 : actualMins > 0 ? trackerTheme.colors.accent4 : trackerTheme.colors.text3;
 
-              return (
-                <View key={key} style={[styles.taskCard, { borderLeftColor: item.category.color }]}>
-                  <View style={styles.taskTop}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.taskName}>{item.category.icon} {item.category.name}</Text>
-                      {item.activity ? <Text style={styles.taskSub}>{item.activity}</Text> : null}
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: statusColor + '15', borderColor: statusColor + '40' }]}>
-                      <Text style={{ color: statusColor, fontSize: 9, fontWeight: '700' }}>{status}</Text>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.taskBody}>
-                    <View style={{ flex: 1, marginRight: 16 }}>
-                      <Text style={styles.targetText}>Target: {formatMins(schedMins)}</Text>
-                      
-                      {/* Preserve and display exact user-entered blocks */}
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                        {daySchedule.filter(s => s.categoryName === item.categoryName && s.activity === item.activity).map((b, i) => (
-                          <Text key={i} style={{ fontSize: 10, color: trackerTheme.colors.text3, backgroundColor: trackerTheme.colors.surface2, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>{b.start} - {b.end}</Text>
-                        ))}
+                return (
+                  <View key={key} style={[styles.taskCard, { borderLeftColor: item.category.color }]}>
+                    <View style={styles.taskTop}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.taskName}>{item.category.icon} {item.category.name}</Text>
+                        {item.activity ? <Text style={styles.taskSub}>{item.activity}</Text> : null}
                       </View>
-
-                      <View style={styles.progressWrap}>
-                        <View style={[styles.progressFill, { width: `${Math.min(100, (actualMins / Math.max(1, schedMins)) * 100)}%`, backgroundColor: actualMins > schedMins ? trackerTheme.colors.accent3 : item.category.color }]} />
+                      <View style={[styles.statusBadge, { backgroundColor: statusColor + '15', borderColor: statusColor + '40' }]}>
+                        <Text style={{ color: statusColor, fontSize: 9, fontWeight: '700' }}>{status}</Text>
                       </View>
                     </View>
                     
-                    <TouchableOpacity 
-                      style={styles.timeInputBtn}
-                      onPress={() => {
-                        if (isFutureDate || isLocked) {
-                           setSubmitError(isFutureDate ? "Future Date: You cannot log progress for upcoming days." : "Locked: Past submissions cannot be edited.");
-                           return;
-                        }
-                        setManualEntryKey(key);
-                        setManualHours(Math.floor(actualMins / 60).toString());
-                        setManualMins((actualMins % 60).toString());
-                      }}
-                    >
-                      <Text style={styles.timeInputBtnText}>{formatMins(actualMins)}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })}
-          </>
-        )}
-      </ScrollView>
+                    <View style={styles.taskBody}>
+                      <View style={{ flex: 1, marginRight: 16 }}>
+                        <Text style={styles.targetText}>Target: {formatMins(schedMins)}</Text>
+                        
+                        {/* Preserve and display exact user-entered blocks */}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                          {daySchedule.filter(s => s.categoryName === item.categoryName && s.activity === item.activity).map((b, i) => (
+                            <Text key={i} style={{ fontSize: 10, color: trackerTheme.colors.text3, backgroundColor: trackerTheme.colors.surface2, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>{b.start} - {b.end}</Text>
+                          ))}
+                        </View>
 
-      {!isRest && !isUnassigned && scheduledItems.length > 0 && (
-        <View style={styles.footer}>
-          {submitError && (
-            <View style={{ backgroundColor: 'rgba(240,107,107,.12)', padding: 12, borderRadius: trackerTheme.radius.sm, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(240,107,107,.3)' }}>
-              <Text style={{ color: trackerTheme.colors.accent3, fontSize: 13, fontWeight: '600', textAlign: 'center', lineHeight: 20 }}>{submitError}</Text>
-            </View>
+                        <View style={styles.progressWrap}>
+                          <View style={[styles.progressFill, { width: `${Math.min(100, (actualMins / Math.max(1, schedMins)) * 100)}%`, backgroundColor: actualMins > schedMins ? trackerTheme.colors.accent3 : item.category.color }]} />
+                        </View>
+                      </View>
+                      
+                      <TouchableOpacity 
+                        style={styles.timeInputBtn}
+                        onPress={() => {
+                          if (isFutureDate) {
+                             showError("Action Not Allowed", "You cannot log progress for upcoming days.");
+                             return;
+                          }
+                          setManualEntryKey(key);
+                          setManualHours(Math.floor(actualMins / 60).toString());
+                          setManualMins((actualMins % 60).toString());
+                        }}
+                      >
+                        <Text style={styles.timeInputBtnText}>{formatMins(actualMins)}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </>
           )}
-          {isFutureDate ? (
-            <View style={[styles.submitBtn, { backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border }]}>
-              <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text3 }]}>Future Date Locked</Text>
+        </ScrollView>
+
+        {!isRest && !isUnassigned && scheduledItems.length > 0 && (
+          <View style={styles.footer}>
+            {isFutureDate ? (
+              <View style={[styles.submitBtn, { backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border }]}>
+                <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text3 }]}>Future Date Locked</Text>
+              </View>
+            ) : (
+              <TouchableOpacity style={[styles.submitBtn, hasUnsavedChanges && styles.submitBtnActive]} onPress={handleSubmitLog}>
+                <Text style={styles.submitBtnText}>{hasUnsavedChanges ? 'Submit Daily Log' : 'Saved ✓'}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+      {/* Custom Error Modal */}
+      <Modal visible={!!errorData} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modal, { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24 }]}>
+            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(240,107,107,.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+              <Text style={{ fontSize: 36 }}>⚠️</Text>
             </View>
-          ) : isLocked ? (
-            <View style={[styles.submitBtn, { backgroundColor: trackerTheme.colors.surface2, borderWidth: 1, borderColor: trackerTheme.colors.border }]}>
-              <Text style={[styles.submitBtnText, { color: trackerTheme.colors.text3 }]}>Past Day Locked</Text>
-            </View>
-          ) : (
-            <TouchableOpacity style={[styles.submitBtn, hasUnsavedChanges && styles.submitBtnActive]} onPress={handleSubmitLog}>
-              <Text style={styles.submitBtnText}>{hasUnsavedChanges ? 'Submit Daily Log' : 'Saved ✓'}</Text>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: trackerTheme.colors.accent3, marginBottom: 12, textAlign: 'center' }}>
+              {errorData?.title}
+            </Text>
+            <Text style={{ fontSize: 15, color: trackerTheme.colors.text, textAlign: 'center', lineHeight: 24, marginBottom: 30 }}>
+              {errorData?.msg}
+            </Text>
+            <TouchableOpacity 
+              style={{ width: '100%', backgroundColor: trackerTheme.colors.accent3, paddingVertical: 16, borderRadius: trackerTheme.radius.lg, alignItems: 'center' }} 
+              onPress={() => setErrorData(null)}
+            >
+              <Text style={[styles.btnPrimaryText, { color: 'white' }]}>Fix it</Text>
             </TouchableOpacity>
-          )}
+          </View>
         </View>
-      )}
+      </Modal>
 
       {/* Manual Time Entry Modal */}
       <Modal visible={!!manualEntryKey} transparent animationType="fade">
