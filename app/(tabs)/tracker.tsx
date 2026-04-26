@@ -169,16 +169,6 @@ export default function UpdateScreen() {
   const isOver = balanceMins < 0;
 
   const handleSubmitLog = () => {
-    if (balanceMins < 0) {
-      showError("Extra Time Logged", `You have logged extra time.\nYour total logged time must exactly match your scheduled ${formatMins(totalScheduledMins)}.\nPlease reduce ${formatMins(Math.abs(balanceMins))} from other activities.`);
-      return;
-    }
-    
-    if (balanceMins > 0) {
-      showError("Incomplete Log", `You still have ${formatMins(balanceMins)} left to log.\nYour total logged time must exactly match your scheduled ${formatMins(totalScheduledMins)}.\nPlease add ${formatMins(balanceMins)} to your activities.`);
-      return;
-    }
-
     scheduledItems.forEach(item => {
       const key = `${item.categoryName}::${item.activity || ''}`;
       const actualMins = drafts[key] || 0;
