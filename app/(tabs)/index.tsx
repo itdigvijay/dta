@@ -1,6 +1,6 @@
 import { useTrackerContext, useTrackerTheme } from '@/app/context/TrackerContext';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -17,6 +17,19 @@ const calcDurHours = (start: string, end: string) => {
   return (eh * 60 + (em || 0) - (sh * 60 + (sm || 0))) / 60;
 };
 
+const getLatestSubmissionDate = (statusUpdates: any, todayStr: string) => {
+  const submittedDates = Object.keys(statusUpdates).filter(d => {
+    return Object.values(statusUpdates[d]).some((cat: any) => {
+      if (cat.actual > 0) return true;
+      if (cat.activities) {
+        return Object.values(cat.activities).some((act: any) => act.actual > 0);
+      }
+      return false;
+    });
+  }).sort();
+  return submittedDates.length > 0 ? submittedDates[submittedDates.length - 1] : todayStr;
+};
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -27,7 +40,14 @@ export default function DashboardScreen() {
 
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const [reportDate, setReportDate] = useState(todayStr);
+  const [reportDate, setReportDate] = useState(() => getLatestSubmissionDate(statusUpdates, todayStr));
+
+  useEffect(() => {
+    const latest = getLatestSubmissionDate(statusUpdates, todayStr);
+    if (latest > reportDate) {
+      setReportDate(latest);
+    }
+  }, [statusUpdates, reportDate, todayStr]);
 
   const [greeting, setGreeting] = useState('Good morning,');
 
@@ -117,25 +137,18 @@ export default function DashboardScreen() {
   const sortedCategories = Object.entries(categoriesStats).sort((a, b) => b[1].scheduled - a[1].scheduled).filter(t => t[1].scheduled > 0 || t[1].actual > 0);
 
   const daysArr = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const [ry, rm, rd] = reportDate.split('-').map(Number);
+  const refDate = new Date(ry, rm - 1, rd);
   const reportDateStrip = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() - 3 + i);
+    const d = new Date(refDate);
+    d.setDate(refDate.getDate() - 3 + i);
     const full = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    return { day: daysArr[d.getDay()], date: d.getDate(), full, isToday: i === 3 };
+    return { day: daysArr[d.getDay()], date: d.getDate(), full, isToday: full === todayStr };
   });
 
   const reportCategoriesStats: Record<string, { actual: number, scheduled: number, color: string, icon: string }> = {};
   categories.forEach(t => { reportCategoriesStats[t.name] = { actual: 0, scheduled: 0, color: t.color, icon: t.icon }; });
 
-  const reportDaySched = schedule[reportDate] || [];
-  reportDaySched.forEach(item => {
-    const hours = calcDurHours(item.start, item.end);
-    if (!reportCategoriesStats[item.categoryName]) {
-       const t = categories.find(x => x.name === item.categoryName);
-       reportCategoriesStats[item.categoryName] = { actual: 0, scheduled: 0, color: t ? t.color : trackerTheme.colors.accent, icon: t ? t.icon : '📌' };
-    }
-    reportCategoriesStats[item.categoryName].scheduled += hours;
-  });
 
   const reportDayData = statusUpdates[reportDate];
   if (reportDayData) {
@@ -190,7 +203,8 @@ export default function DashboardScreen() {
               const scheduled = cat[1].scheduled;
               const actual = cat[1].actual;
               const diff = actual - scheduled;
-              const progress = scheduled > 0 ? Math.min(100, (actual / scheduled) * 100) : 0;
+              const progressPercent = scheduled > 0 ? (actual / scheduled) * 100 : 0;
+              const progressWidth = Math.min(100, progressPercent);
               const activities = Object.entries(cat[1].activities).filter(a => a[1].scheduled > 0 || a[1].actual > 0);
               const diffText = diff > 0 ? `  (+${diff.toFixed(1)}h)` : diff < 0 ? `  (${diff.toFixed(1)}h)` : `  (✓)`;
               const diffColor = diff > 0 ? trackerTheme.colors.accent3 : diff < 0 ? trackerTheme.colors.accent4 : trackerTheme.colors.accent2;
@@ -206,11 +220,11 @@ export default function DashboardScreen() {
                         <Text style={{ color: diffColor, fontWeight: '700' }}>{diffText}</Text>
                       </Text>
                     </View>
-                    <Text style={{ fontSize: 16, fontWeight: '800', color: cat[1].color }}>{Math.round(progress)}%</Text>
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: cat[1].color }}>{Math.round(progressPercent)}%</Text>
                   </View>
                   
                   <View style={styles.detailProgressBg}>
-                    <View style={[styles.detailProgressFill, { width: `${progress}%`, backgroundColor: diff > 0 ? trackerTheme.colors.accent3 : cat[1].color }]} />
+                    <View style={[styles.detailProgressFill, { width: `${progressWidth}%`, backgroundColor: diff > 0 ? trackerTheme.colors.accent3 : cat[1].color }]} />
                   </View>
                   
                   {activities.length > 0 && (
@@ -219,7 +233,8 @@ export default function DashboardScreen() {
                         const aSch = act[1].scheduled;
                         const aAct = act[1].actual;
                         const aDiff = aAct - aSch;
-                        const aProg = aSch > 0 ? Math.min(100, (aAct / aSch) * 100) : 0;
+                        const aProgPercent = aSch > 0 ? (aAct / aSch) * 100 : 0;
+                        const aProgWidth = Math.min(100, aProgPercent);
                         const aDiffText = aDiff > 0 ? `  (+${aDiff.toFixed(1)}h)` : aDiff < 0 ? `  (${aDiff.toFixed(1)}h)` : `  (✓)`;
                         const aDiffColor = aDiff > 0 ? trackerTheme.colors.accent3 : aDiff < 0 ? trackerTheme.colors.accent4 : trackerTheme.colors.accent2;
                         return (
@@ -232,7 +247,7 @@ export default function DashboardScreen() {
                               </Text>
                             </View>
                             <View style={[styles.detailProgressBg, { height: 4 }]}>
-                              <View style={[styles.detailProgressFill, { width: `${aProg}%`, backgroundColor: cat[1].color }]} />
+                              <View style={[styles.detailProgressFill, { width: `${aProgWidth}%`, backgroundColor: cat[1].color }]} />
                             </View>
                           </View>
                         );
@@ -277,7 +292,8 @@ export default function DashboardScreen() {
               const scheduled = cat[1].scheduled;
               const actual = cat[1].actual;
               const diff = actual - scheduled;
-              const progress = scheduled > 0 ? Math.min(100, (actual / scheduled) * 100) : 0;
+              const progressPercent = scheduled > 0 ? (actual / scheduled) * 100 : 0;
+              const progressWidth = Math.min(100, progressPercent);
               
               let statusText = '';
               let statusColor = trackerTheme.colors.text2;
@@ -308,11 +324,11 @@ export default function DashboardScreen() {
                   
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, marginTop: 4 }}>
                     <Text style={{ fontSize: 10, color: statusColor, fontWeight: '700' }}>{statusText}</Text>
-                    <Text style={{ fontSize: 10, color: cat[1].color, fontWeight: '700' }}>{Math.round(progress)}%</Text>
+                    <Text style={{ fontSize: 10, color: cat[1].color, fontWeight: '700' }}>{Math.round(progressPercent)}%</Text>
                   </View>
                   
                   <View style={styles.detailProgressBg}>
-                    <View style={[styles.detailProgressFill, { width: `${progress}%`, backgroundColor: diff > 0 ? trackerTheme.colors.accent3 : cat[1].color }]} />
+                    <View style={[styles.detailProgressFill, { width: `${progressWidth}%`, backgroundColor: diff > 0 ? trackerTheme.colors.accent3 : cat[1].color }]} />
                   </View>
                 </View>
               );
